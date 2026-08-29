@@ -12,11 +12,21 @@ const mod = (v) => Math.floor((v - 10) / 2);
 export default function CharacterSheet() {
   const { id } = useParams();
   const [c, setC] = useState(null);
+  const [template, setTemplate] = useState(null);
   const [tab, setTab] = useState("stats");
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
-    try { const { data } = await api.get(`/characters/${id}`); setC(data); }
+    try {
+      const { data } = await api.get(`/characters/${id}`);
+      setC(data);
+      if (data.template_id) {
+        try {
+          const t = await api.get(`/templates/${data.template_id}`);
+          setTemplate(t.data);
+        } catch {}
+      }
+    }
     catch (e) { toast.error(formatApiError(e)); }
   };
   useEffect(() => { load(); }, [id]);
@@ -166,23 +176,36 @@ export default function CharacterSheet() {
               ))}
             </div>
 
-            {tab === "stats" && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {Object.entries(ATTR_LABELS).map(([k, lbl]) => {
-                  const v = c.attributes?.[k] || 10;
-                  const m = mod(v);
-                  return (
-                    <div key={k} className="border border-white/10 bg-[#12121A] p-4 rounded-sm text-center">
-                      <div className="text-xs text-gray-500 font-mono mb-2">{lbl}</div>
-                      <input type="number" value={v} onChange={(e) => setAttr(k, e.target.value)} onBlur={() => save({})}
-                        data-testid={`attr-${k}`}
-                        className="w-full bg-transparent font-mono text-4xl font-bold text-center outline-none focus:text-[#FF4500]" />
-                      <div className="text-lg font-mono text-[#FF4500] mt-1">{m >= 0 ? `+${m}` : m}</div>
+            {tab === "stats" && (() => {
+              // Determine attribute schema: template if present, else defaults from attributes keys
+              const schema = template?.attributes_schema?.length
+                ? template.attributes_schema
+                : Object.keys(c.attributes || ATTR_LABELS).map((k) => ({ key: k, label: ATTR_LABELS[k] || k.toUpperCase() }));
+              return (
+                <div>
+                  {template && (
+                    <div className="text-xs text-gray-500 font-mono mb-3">
+                      Atributos do modelo: <span className="text-[#FF4500]">{template.name}</span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {schema.map(({ key, label }) => {
+                      const v = c.attributes?.[key] ?? 10;
+                      const m = mod(v);
+                      return (
+                        <div key={key} className="border border-white/10 bg-[#12121A] p-4 rounded-sm text-center">
+                          <div className="text-xs text-gray-500 font-mono mb-2 uppercase">{label || key}</div>
+                          <input type="number" value={v} onChange={(e) => setAttr(key, e.target.value)} onBlur={() => save({})}
+                            data-testid={`attr-${key}`}
+                            className="w-full bg-transparent font-mono text-4xl font-bold text-center outline-none focus:text-[#FF4500]" />
+                          <div className="text-lg font-mono text-[#FF4500] mt-1">{m >= 0 ? `+${m}` : m}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {tab === "skills" && (
               <div>

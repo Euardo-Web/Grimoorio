@@ -53,7 +53,11 @@ def campaign(master, player):
 class TestHealth:
     def test_seeded_admin_login(self):
         s = requests.Session()
-        r = s.post(f"{API}/auth/login", json={"email": "admin@rpg.local", "password": "admin123"})
+        # Seeded admin email comes from backend ADMIN_EMAIL env (see /app/memory/test_credentials.md)
+        backend_env = dotenv_values("/app/backend/.env")
+        admin_email = backend_env.get("ADMIN_EMAIL", "admin@rpg.example.com")
+        admin_password = backend_env.get("ADMIN_PASSWORD", "admin123")
+        r = s.post(f"{API}/auth/login", json={"email": admin_email, "password": admin_password})
         assert r.status_code == 200, r.text[:300]
         me = s.get(f"{API}/auth/me")
         assert me.status_code == 200

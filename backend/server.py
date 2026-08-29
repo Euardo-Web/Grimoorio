@@ -466,7 +466,9 @@ async def update_character(char_id: str, body: dict, user=Depends(get_current_us
         raise HTTPException(status_code=404, detail="Personagem não encontrado")
     if c["owner_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Apenas o dono pode editar")
-    body.pop("id", None); body.pop("owner_id", None); body.pop("created_at", None)
+    # Strip fields that must not be overwritten or that would conflict with $push history
+    for k in ("id", "_id", "owner_id", "created_at", "history"):
+        body.pop(k, None)
     body["updated_at"] = now_iso()
     await db.characters.update_one({"id": char_id},
         {"$set": body, "$push": {"history": {"at": now_iso(), "action": "updated"}}})
@@ -795,9 +797,16 @@ async def get_template(tid: str, user=Depends(get_current_user)):
     if not t:
         raise HTTPException(status_code=404, detail="Modelo não encontrado")
     strip_id(t)
-    if not t.get("is_public") and t["author_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Modelo privado")
-    return t
+    if t.get("is_public") or t["author_id"] == user["id"]:
+        return t
+    # Allow access if user is a member of any campaign that uses this template
+    camp = await db.campaigns.find_one({
+        "template_id": tid,
+        "$or": [{"master_id": user["id"]}, {"player_ids": user["id"]}],
+    })
+    if camp:
+        return t
+    raise HTTPException(status_code=403, detail="Modelo privado")
 
 @api.patch("/templates/{tid}")
 async def update_template(tid: str, body: TemplateUpdate, user=Depends(get_current_user)):

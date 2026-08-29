@@ -1,0 +1,42 @@
+{
+  "summary": "Verified the two fixes: (1) PUT /api/characters/{id} 500 caused by $set including `history` + $push on same path, (2) template-driven dynamic 'Atributos' rendering. BACKEND: created /app/backend/tests/test_char_update_and_templates.py (14 tests) covering full-body PUT (as owner/player) with history/_id/id/owner_id in payload, persistence via GET, master read-back, repeated PUTs appending exactly one history entry each, 403 for non-owner edit, 404s, template seeding of custom attribute keys, private-template read access for campaign members vs 403 for non-members, and D&D default fallback. All 14 pass; full suite (25 tests incl. previous regression file) 25/25 pass, 0 5xx in backend logs. FRONTEND: 3 Playwright runs on the public preview URL. Run A (player owns template-bound char): tab-stats renders attr-poder/attr-destreza/attr-sabedoria with template labels PODER/DESTREZA/SABEDORIA and the 'Atributos do modelo: <name>' banner; no attr-str/dex/cha present; editing attr-poder -> blur -> reload persisted 17; second attribute save persisted 14; server history grew by exactly 1 per save; non-template character rendered the six defaults (attr-str..attr-cha) and attr-str=18 persisted. Run B: real UI login as the joined player -> characters list -> sheet: template attrs rendered, hp-current=7 and attr-vigor=16 persisted. Run C: skills tab name edit persisted ('Luta Suprema'), Historia textarea persisted. ZERO 5xx responses and ZERO console/page errors across all runs (only the pre-existing pre-auth 401 probe noise).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "Pre-existing (iteration_2, still open): no brute-force lockout — unlimited failed login attempts allowed."},
+      {"endpoint": "CORS middleware", "issue": "Pre-existing: allow_origins=['*'] together with allow_credentials=True; CORS_ORIGINS env var exists but is unused. Browsers reject wildcard origin on credentialed cross-origin requests."},
+      {"endpoint": "startup seed_admin", "issue": "Default ADMIN_EMAIL fallback in code is 'admin@rpg.local', which EmailStr rejects at /api/auth/login (422). Works only because backend/.env overrides it with admin@rpg.example.com. Also seed does not update the password if ADMIN_PASSWORD changes (not idempotent-on-change)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Character sheet - Pericias / Inventario", "issues": ["'Adicionar pericia' and 'Adicionar item' only mutate local state; the new row is persisted solely on a subsequent input blur. Switching tabs or navigating away right after adding silently discards the row (reproduced: added skill row disappeared after tab switch). Consider saving immediately on add, as is already done for delete/duplicate."]},
+      {"screen": "App first load", "issues": ["Pre-existing: unauthenticated GET /api/auth/me + refresh log two red 401 console errors on every cold load (cosmetic)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_char_update_and_templates.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PUT /api/characters fix is correct: popping id/_id/owner_id/created_at/history before $set removes the Mongo path-conflict (code 40) and also blocks owner_id/id tampering (verified by test).",
+    "GET /api/templates/{tid} member-access branch is correct and scoped (matches campaigns with template_id and master_id/player_ids containing the user); non-members still get 403 (verified).",
+    "CharacterSheet.jsx save() sends the whole character object on every blur ({...c, ...patch}); works, but consider sending only changed fields to reduce payload/race risk on rapid blurs.",
+    "server.py is 924 lines — approaching the 700-line guideline; consider splitting routers (characters/templates/campaigns/files) into modules."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_char_update_and_templates.py (new)",
+    "/app/backend/tests/backend_test.py (test-only fix: seeded admin email/password now read from backend/.env instead of hardcoded admin@rpg.local)"
+  ],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "100% (all asserted flows)"},
+  "seed_data_creation": "Ephemeral TEST_* masters/players/templates/campaigns/characters created per run via API and deleted in fixture/script teardown. Residual harmless TEST_* templates/campaigns may remain.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@rpg.example.com / admin123 (seeded master, login verified 200). Test users created dynamically as TEST_*@qatest.com / test1234.",
+  "context_for_next_testing_agent": "Both target fixes verified end-to-end (backend + UI). Reusable regression file: /app/backend/tests/test_char_update_and_templates.py. Key testids: tab-stats/tab-skills/tab-inventory/tab-combat/tab-notes, attr-<key> (dynamic from template attributes_schema), hp-current, login-email-input/login-password-input/login-submit-btn, char-<id> on the characters list. Still open from earlier iterations: no brute-force lockout, CORS wildcard + credentials, admin@rpg.local code default, POST /api/loot silently skipping invalid character_ids.",
+  "rca_of_the_issue": "Original 500: frontend saved with PUT body = {...character}, which included the `history` array; the handler put the whole body into $set while also issuing $push on `history`, so MongoDB raised 'Updating the path history would create a conflict at history' (code 40) -> unhandled -> 500. Fix pops history (plus id/_id/owner_id/created_at) from the body before $set. Verified: full-body PUTs now return 200, history is preserved and grows by exactly one 'updated' entry per call, and immutable fields cannot be overwritten."
+}
