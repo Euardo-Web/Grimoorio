@@ -1,0 +1,148 @@
+{
+  "project_name": "RPG Management & Tabletop SaaS",
+  "theme_strategy": {
+    "mode": "Dark-first (Critical for long-session tabletop play to reduce eye strain)",
+    "archetype": "Tactical Grimoire (Archetype 5: Luxury meets Archetype 2: Tactical)",
+    "vibe": "Cinematic, moody, highly legible command-center for Dungeon Masters and Players."
+  },
+  "typography": {
+    "headings": {
+      "family": "Cormorant Garamond",
+      "weights": ["600", "700"],
+      "usage": "Campaign titles, Character Names, Page Headers. Gives a subtle arcane/mystical book feel.",
+      "tracking": "tracking-tight"
+    },
+    "body_ui": {
+      "family": "Outfit",
+      "weights": ["300", "400", "500"],
+      "usage": "General UI text, descriptions, lists, tooltips. Clean, modern, highly readable."
+    },
+    "stats_and_data": {
+      "family": "JetBrains Mono",
+      "weights": ["400", "700"],
+      "usage": "HP, Initiative, AC, Dice results, modifiers. Creates a 'tactical command' aesthetic."
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#0A0A0E",
+      "surface": "#12121A",
+      "surface_elevated": "#1A1A24"
+    },
+    "accent": {
+      "primary": "#FF4500",
+      "primary_hover": "#FF6347",
+      "glow": "rgba(255, 69, 0, 0.4)",
+      "description": "Ember Flame - represents action, fire, and critical hits."
+    },
+    "text": {
+      "primary": "#F3F4F6",
+      "secondary": "#9CA3AF",
+      "muted": "#4B5563"
+    },
+    "utility": {
+      "border": "#272732",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444"
+    },
+    "rules": [
+      "No pure black. Use the blue-tinted obsidian base.",
+      "Accent color (#FF4500) should be used sparsely for CTAs, active states, and dice roll highlights.",
+      "Use white/10 or white/5 for subtle dividers instead of heavy borders."
+    ]
+  },
+  "visual_enhancers": {
+    "surfaces": [
+      "Dashboard Cards: Flat solid backgrounds (#12121A) with 1px solid border (#272732). No soft drop shadows.",
+      "Floating UI (Dice Roller, Context Menus): Crystal Glassmorphism. bg-[#0A0A0E]/80 with backdrop-blur-xl and border border-white/10.",
+      "Active States: Use 'Tracing Beam' or subtle inner glow (box-shadow: inset 0 0 10px rgba(255, 69, 0, 0.2)) for active character turn or selected spells."
+    ],
+    "textures": [
+      "Subtle noise overlay (opacity 2-3%) on the main background to break the digital flatness and give a slight 'parchment/table' feel without being cliché."
+    ]
+  },
+  "grids_and_layouts": {
+    "dashboard_dm": {
+      "type": "High Density Grid",
+      "classes": "grid grid-cols-1 md:grid-cols-4 lg:grid-cols-12 gap-4",
+      "logic": "Metrics and quick-actions span 3, active combat tracker spans 6, dice log spans 3."
+    },
+    "character_sheet": {
+      "type": "Bento Grid Protocol",
+      "classes": "grid grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-6 p-6",
+      "logic": "Hero (Avatar + Core Stats): col-span-full lg:col-span-4 row-span-2. Attributes: col-span-4. Skills/Inventory: col-span-4 row-span-2."
+    },
+    "spacing": "Generous Spacing (p-6, p-8) for campaigns list. Tight Spacing (p-3, p-4) for combat tracker and inventory to maximize screen real estate during play.",
+    "alignment_rules": "All stats and tabular data must be left-aligned or tabular-aligned. Roll buttons should be vertically centered with the stat they correspond to."
+  },
+  "components_strategy": {
+    "buttons": "Sharp edges (rounded-sm) or angled cuts. Primary buttons use Ember Flame background with dark text. Secondary buttons use transparent background with border-white/20 and hover:bg-white/5.",
+    "inputs": "Shadcn UI Input, customized to bg-[#12121A], border-white/10, focus-visible:ring-1 focus-visible:ring-[#FF4500].",
+    "tables": "Dense. border-b border-white/5. Hover state on rows: bg-white/5. JetBrains Mono for numeric columns.",
+    "cards": "Avoid standard generic cards. Use 'border-collapse' grid styles or 1px border (#272732) with no border-radius (rounded-none or rounded-sm) for a tactical feel.",
+    "dice_log": "A fixed or sticky glassmorphism sidebar/bottom-bar. New rolls animate in from the bottom.",
+    "tabs": "Shadcn Tabs, customized. Active tab gets a bottom border of #FF4500 and text-white. Inactive text-gray-500."
+  },
+  "motion_and_interactions": {
+    "hover_states": "-translate-y-[1px] with border color shift for interactive cards. Explicit text color changes on hover.",
+    "dice_rolls": "Framer Motion for real-time feed. Staggered entrance animations. Critical Hits (20) pulse with Ember Flame glow.",
+    "page_transitions": "Fade and slight slide-up (10px) using Framer Motion.",
+    "accessibility": "Respect prefers-reduced-motion. High contrast on focus rings."
+  },
+  "image_urls": {
+    "character_avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1764384700065-304c92b11e9c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHw0fHxycGclMjBjaGFyYWN0ZXIlMjBwb3J0cmFpdCUyMGRhcmslMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4Nzk2NTAwN3ww&ixlib=rb-4.1.0&q=85",
+        "category": "Female Rogue/Mage",
+        "description": "Profile in dark lighting"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1779475486433-3d58b756da7d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwzfHxycGclMjBjaGFyYWN0ZXIlMjBwb3J0cmFpdCUyMGRhcmslMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4Nzk2NTAwN3ww&ixlib=rb-4.1.0&q=85",
+        "category": "Sorcerer",
+        "description": "Lightning projection on face"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1784565190998-37f9caa58a5e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwyfHxycGclMjBjaGFyYWN0ZXIlMjBwb3J0cmFpdCUyMGRhcmslMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4Nzk2NTAwN3ww&ixlib=rb-4.1.0&q=85",
+        "category": "Alien/Tiefling",
+        "description": "Blue-skinned character in darkness"
+      }
+    ],
+    "campaign_backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1759255552157-fa9af1a3d489?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzV8MHwxfHNlYXJjaHwzfHxkdW5nZW9uJTIwbWFzdGVyJTIwcHJlcCUyMGRhcmslMjBkZXNrfGVufDB8fHx8MTc4Nzk2NTAwN3ww&ixlib=rb-4.1.0&q=85",
+        "category": "Necromancy / Dark Campaign",
+        "description": "Skull and papers on dark desk"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1515128926115-1da1b3c702c9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwyfHxkYXJrJTIwZmFudGFzeSUyMHRhY3RpY2FsJTIwZ2FtZSUyMG1hcHxlbnwwfHx8fDE3ODc5NjUwMDd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "Tactical Map",
+        "description": "Top down aerial view"
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure all text against dark surfaces meets minimum 4.5:1 ratio. Muted text must be at least #9CA3AF against #12121A.",
+    "data_testid": "ALL interactive elements MUST have data-testid attributes (e.g., 'roll-initiative-btn', 'add-spell-btn', 'hp-input')."
+  },
+  "instructions_to_main_agent": [
+    "Execute: yarn add @phosphor-icons/react framer-motion sonner",
+    "Follow the theme strictly. Do not deviate to light mode or generic blue SaaS colors. Keep it dark and tactical.",
+    "Use Phosphor Icons (@phosphor-icons/react) for a sharp, detailed look. DO NOT use emojis.",
+    "Do not use generic HTML inputs for complex UI. Use Shadcn for dropdowns, tabs, dialogs.",
+    "For the dice roller, implement a visual 'feed' using sonner or a custom Framer Motion list.",
+    "Implement the 'Bento Grid' strategy for the Character Sheet. Avoid standard 1-column mobile layouts if you can fit 2 dense columns.",
+    "CRITICAL: Do not use complete transparent backgrounds for headers or sticky elements. Use bg-[#0A0A0E]/80 backdrop-blur-xl.",
+    "When building the combat tracker, use dense lists. Do not waste vertical space.",
+    "Import fonts in CSS or layout: @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;400;500&display=swap');",
+    "Ensure the application uses .js and .jsx files, not .tsx. Adjust Shadcn imports and definitions accordingly."
+  ],
+  "universal_guidelines_for_main_agent": [
+    "Do not center align the app container (.App { text-align: center; } is FORBIDDEN).",
+    "Do not apply universal transition (transition: all). Target specific properties like transition-colors, transition-transform.",
+    "Create depth through layered design elements with z-index hierarchy and surface colors.",
+    "Never use AI assistant Emoji characters like \ud83e\udd16\ud83e\udde0\ud83d\udcad\ud83d\udca1\ud83d\udd2e\ud83c\udfaf for icons. Use Phosphor Icons.",
+    "Every interaction needs micro-animations - hover states, explicit text color changes, and focus states.",
+    "Missing categories (especially sponsor logos/avatars) = use provided images. DO NOT use placeholder text."
+  ]
+}

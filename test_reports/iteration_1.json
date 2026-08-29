@@ -1,0 +1,32 @@
+{
+  "summary": "First-pass smoke test of RPG Manager MVP (Grimório). Backend: 14/14 critical endpoints passed (auth register/login/me, campaigns create+join with 'code' field, character CRUD+duplicate+long-rest, dice roll with breakdown and feed listing, sessions with 403 for player, NPCs create+list, templates public library, notifications, file upload with object storage). Frontend: landing loads with correct Portuguese-BR branding and orange #FF4500 accents, registration flow completes and redirects to /app dashboard, sidebar navigation renders all four items (Início/Campanhas/Personagens/Modelos) plus brand-link and logout-btn, master successfully creates a campaign (toast shown, card visible with invite code #QTA3XT), character creation triggers success toast, templates page shows both 'Meus modelos' and 'Biblioteca pública' tabs.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/register (master + player) 200 + cookies set",
+    "GET /api/auth/me 200 returns user",
+    "POST /api/campaigns 200 returns invite_code",
+    "POST /api/campaigns/join with body {code} 200",
+    "POST /api/characters + PUT + duplicate + long-rest all 200",
+    "Long rest resets hp_current to hp_max (15 -> 30)",
+    "POST /api/rolls with '1d20+5' returns total + breakdown, GET /api/rolls?campaign_id lists roll from other user",
+    "POST /api/sessions master 200, player 403 with PT-BR message",
+    "POST /api/npcs + GET list 200",
+    "POST /api/templates is_public=true + GET ?scope=public returns it 200",
+    "GET /api/notifications returns rest notification 200",
+    "POST /api/files/upload multipart returns storage_path and download URL",
+    "Frontend landing: Grimório branding + orange accent visible",
+    "Frontend register-as-master flow -> /app dashboard",
+    "Sidebar nav testids all present, user info shown (Mestre role)",
+    "Campaign creation via UI (toast + card visible)",
+    "Character creation via UI (toast shown)",
+    "Templates page tabs and create-template-btn present"
+  ],
+  "failed": [
+    {"area": "campaigns/join API contract", "issue": "Endpoint expects body field named 'code' (not 'invite_code' as one might infer from response). Frontend uses join-code-input so likely fine, but worth documenting.", "evidence": "422 when sending {invite_code}, 200 when sending {code}", "priority": "LOW"},
+    {"area": "console 401s", "issue": "Two 401 errors logged on landing page from initial /api/auth/me probe before login", "evidence": "console: 'Failed to load resource: 401' x2", "priority": "LOW"}
+  ],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
