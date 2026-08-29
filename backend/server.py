@@ -236,6 +236,13 @@ class TemplateUpdate(BaseModel):
     skills_schema: Optional[List[Dict[str, Any]]] = None
     sections: Optional[List[Dict[str, Any]]] = None
 
+class LootIn(BaseModel):
+    campaign_id: str
+    character_ids: List[str]
+    items: List[Dict[str, Any]] = Field(default_factory=list)  # [{name, qty, weight, category}]
+    coins: Dict[str, int] = Field(default_factory=dict)
+    note: str = ""
+
 # --------- Auth endpoints ---------
 @api.post("/auth/register")
 async def register(body: RegisterIn, response: Response):
@@ -398,10 +405,22 @@ def default_dnd_char(name: str) -> dict:
 
 @api.post("/characters")
 async def create_character(body: CharacterIn, user=Depends(get_current_user)):
+    template = None
     if body.campaign_id:
-        await get_campaign_or_403(body.campaign_id, user)
+        camp = await get_campaign_or_403(body.campaign_id, user)
+        if camp.get("template_id"):
+            template = await db.templates.find_one({"id": camp["template_id"]})
     cid = new_id()
     data = body.model_dump()
+    # Seed from campaign template if present
+    if template:
+        if not data["attributes"] and template.get("attributes_schema"):
+            data["attributes"] = {a["key"]: 10 for a in template["attributes_schema"] if a.get("key")}
+        if not data["skills"] and template.get("skills_schema"):
+            data["skills"] = [{"name": s.get("label") or s.get("key"), "value": 0, "bonus": 0}
+                              for s in template["skills_schema"] if s.get("key") or s.get("label")]
+        data["template_id"] = template["id"]
+        data["system"] = template.get("system", data.get("system", "custom"))
     if not data["attributes"]:
         data["attributes"] = {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10}
     if not data["spell_slots"]:
@@ -644,6 +663,58 @@ async def delete_file(fid: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Sem permissão")
     await db.files.update_one({"id": fid}, {"$set": {"is_deleted": True}})
     return {"ok": True}
+
+# --------- Loot ---------
+@api.post("/loot")
+async def distribute_loot(body: LootIn, user=Depends(get_current_user)):
+    camp = await get_campaign_or_403(body.campaign_id, user, require_master=True)
+    if not body.character_ids:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um personagem")
+    updated = []
+    for char_id in body.character_ids:
+        c = await db.characters.find_one({"id": char_id, "campaign_id": body.campaign_id})
+        if not c:
+            continue
+        inv = c.get("inventory", []) or []
+        for item in body.items:
+            inv.append({
+                "name": item.get("name", "Item"),
+                "qty": int(item.get("qty", 1) or 1),
+                "weight": float(item.get("weight", 0) or 0),
+                "category": item.get("category", "misc"),
+                "equipped": False,
+            })
+        coins = dict(c.get("coins") or {"gp": 0, "sp": 0, "cp": 0, "pp": 0, "ep": 0})
+        for k, v in (body.coins or {}).items():
+            coins[k] = int(coins.get(k, 0)) + int(v or 0)
+        await db.characters.update_one(
+            {"id": char_id},
+            {"$set": {"inventory": inv, "coins": coins, "updated_at": now_iso()},
+             "$push": {"history": {"at": now_iso(), "action": "loot_received", "note": body.note}}}
+        )
+        # Notify owner
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": c["owner_id"], "type": "loot",
+            "message": f"{user['name']} enviou loot para {c['name']} em '{camp['name']}'.",
+            "created_at": now_iso(), "read": False,
+        })
+        updated.append(char_id)
+    # Log in loot history
+    loot_doc = {
+        "id": new_id(), "campaign_id": body.campaign_id, "master_id": user["id"],
+        "master_name": user["name"], "character_ids": updated, "items": body.items,
+        "coins": body.coins, "note": body.note, "created_at": now_iso(),
+    }
+    await db.loot_history.insert_one(loot_doc)
+    return {"ok": True, "updated": updated, "loot": strip_id(loot_doc)}
+
+@api.get("/loot")
+async def list_loot(campaign_id: str, user=Depends(get_current_user)):
+    await get_campaign_or_403(campaign_id, user)
+    result = []
+    async for l in db.loot_history.find({"campaign_id": campaign_id}).sort("created_at", -1).limit(50):
+        strip_id(l); result.append(l)
+    return result
 
 # --------- Session Notes ---------
 @api.post("/sessions")

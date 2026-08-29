@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the two new features end-to-end: (1) Loot distribution (POST/GET /api/loot + campaign detail Loot tab) and (2) Campaign sheet-template dropdown + character auto-seeding from campaign template. 11 pytest cases created in /app/backend/tests/backend_test.py: 10 passed, 1 failed (pre-existing seeded-admin login is broken by email validation of the .local TLD). Frontend Playwright: master template dropdown lists own+installed templates, campaign creation with template works, Loot tab form (chips/coins/items/note/submit) works with success toast + history entry, player sees read-only history and no form. Verified persistence via API: coins incremented (10->60->65), items appended with equipped=false, loot notification created for the character owner, loot_history returned without _id, template seeding (poder/agilidade=10, skill 'Furtividade' value/bonus 0, character.template_id = campaign template).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/login (seeded admin)", "issue": "Documented seeded admin 'admin@rpg.local' CANNOT log in: Pydantic EmailStr (email-validator 2.3.0) rejects reserved TLD '.local' -> HTTP 422 'The part after the @-sign is a special-use or reserved name'. The user exists in DB with a valid $2b$ bcrypt hash but is permanently unreachable via API/UI. Fix: change ADMIN_EMAIL default (e.g. admin@rpg.app / admin@grimorio.dev), re-seed, and update /app/memory/test_credentials.md. Note the credentials file also lists mestre@test.com/jogador@test.com which do not exist.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "No brute-force lockout: 7 consecutive wrong-password attempts all returned 401 with no throttle/429/lockout (playbook expects lockout after 5 fails)."},
+      {"endpoint": "CORS middleware", "issue": "allow_origins=[\"*\"] combined with allow_credentials=True is invalid per CORS spec (browsers reject credentialed cross-origin requests). Works today only because the preview serves FE+BE on the same origin. Use explicit origin list from env."},
+      {"endpoint": "POST /api/loot", "issue": "character_ids that do not exist / are not in the campaign are silently skipped; the call still returns ok:true and writes a loot_history entry with updated=[] (no items delivered, no error/warning to the master)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Campaigns page create form -> template dropdown", "issue": "Race/no loading state: if the create form is opened before GET /templates?scope=mine resolves, the select shows only the placeholder and the hint 'Você ainda não tem modelos...' is displayed even though the master does have templates. Reproduced consistently when clicking 'Nova Campanha' immediately after navigation; correct after ~1-2s. Add a loading state / disable the hint until templates are fetched.", "affected_selectors": ["campaign-template-select", "create-campaign-btn"]}
+    ],
+    "design_issues": [
+      {"screen": "Campaign detail -> Loot tab (player, read-only)", "issues": ["History entries omit coins and item names for players (shows only '1 itens'), while the master view shows '1 itens • 50 moedas' — players cannot see what/how much they received from the history list.", "Invite code ('Convite: XXXXX') is exposed to non-master members in the campaign header."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "CRITICAL: replace the seeded admin email '.local' domain (EmailStr rejects it) so admin@... can actually log in; update /app/memory/test_credentials.md with real, working accounts.",
+    "Add loading state for the template dropdown on CampaignsPage so the 'no templates' hint is not shown while /templates is in flight.",
+    "Show coins and item names in the player read-only loot history.",
+    "Optional: return a warning/400 from POST /api/loot when none of the supplied character_ids resolve to campaign characters.",
+    "Optional (playbook): implement failed-login lockout and replace CORS allow_origins=['*'] with explicit origins."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py is 916 lines — split into routers (auth, campaigns, characters, loot, templates).",
+    "POST /api/loot rebuilds the whole inventory array in Python and $sets it; concurrent loot to the same character can lose items. Prefer $push with $each.",
+    "install_template mutates the fetched doc and re-inserts it; it copies unknown future fields blindly — consider whitelisting cloned fields.",
+    "Character template seeding correctly overrides only empty attributes/skills and sets system from template — verified; but campaign.system is not synced to template.system, so campaign shows 'DND5E' while its characters are 'custom'."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "91% (10/11 pytest; 100% of the two new features)", "frontend": "100% of new-feature flows (1 race-condition/UX defect)"},
+  "seed_data_creation": "Fresh accounts per run with @qatest.com domain (.local rejected). UI seed: master TEST_uim_5b1716@qatest.com / test1234, player TEST_uip_107b07@qatest.com / test1234, public template TEST_UI_Modelo, campaigns TEST_UI_Campanha & TEST_UI_Camp2, characters TEST_UI_Char / TEST_UI_PChar / TEST_UI_SeedCheck.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@rpg.local / admin123 is BROKEN (422 invalid email). Use TEST_uim_5b1716@qatest.com / test1234 (master) and TEST_uip_107b07@qatest.com / test1234 (player).",
+  "context_for_next_testing_agent": "Both new features (loot + template seeding) are functionally correct on backend and frontend. Do NOT register users with a .local email domain — EmailStr rejects it. Regression suite lives at /app/backend/tests/backend_test.py (run: cd /app/backend && python -m pytest tests/backend_test.py -v). TestHealth::test_seeded_admin_login is the intentional failing test tracking the admin email bug. When testing the campaigns template dropdown, wait until option count > 1 (async fetch).",
+  "rca_of_the_issue": "Seeded-admin login failure: seed_admin() defaults ADMIN_EMAIL to 'admin@rpg.local'; RegisterIn/LoginIn use Pydantic EmailStr backed by email-validator 2.3.0, which rejects special-use/reserved TLDs such as .local, so every login request with that address fails validation with 422 before reaching the password check. Reproduce: POST /api/auth/login {email: admin@rpg.local, password: admin123} -> 422. Mitigation: set ADMIN_EMAIL to a non-reserved domain and re-run seeding (existing admin doc should be updated/renamed)."
+}

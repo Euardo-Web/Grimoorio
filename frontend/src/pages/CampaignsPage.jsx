@@ -9,23 +9,26 @@ import { toast } from "sonner";
 export default function CampaignsPage() {
   const { user } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
-  const [form, setForm] = useState({ name: "", system: "dnd5e", description: "" });
+  const [form, setForm] = useState({ name: "", system: "dnd5e", description: "", template_id: "" });
   const [joinCode, setJoinCode] = useState("");
 
   const load = async () => {
-    const { data } = await api.get("/campaigns");
-    setCampaigns(data);
+    const [c, t] = await Promise.all([api.get("/campaigns"), api.get("/templates?scope=mine")]);
+    setCampaigns(c.data);
+    setTemplates(t.data);
   };
   useEffect(() => { load(); }, []);
 
   const create = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/campaigns", form);
+      const payload = { ...form, template_id: form.template_id || null };
+      await api.post("/campaigns", payload);
       toast.success("Campanha criada!");
-      setForm({ name: "", system: "dnd5e", description: "" });
+      setForm({ name: "", system: "dnd5e", description: "", template_id: "" });
       setCreating(false);
       load();
     } catch (e) { toast.error(formatApiError(e)); }
@@ -92,6 +95,24 @@ export default function CampaignsPage() {
                 <option value="tormenta">Tormenta20</option>
                 <option value="custom">Personalizado</option>
               </select>
+            </div>
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 font-mono mb-1">MODELO DE FICHA (opcional)</label>
+              <select value={form.template_id} onChange={(e) => setForm({ ...form, template_id: e.target.value })}
+                data-testid="campaign-template-select"
+                className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                <option value="">— usar campos padrão —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.system}{t.cloned_from ? " • instalado" : ""})
+                  </option>
+                ))}
+              </select>
+              {templates.length === 0 && (
+                <div className="text-xs text-gray-500 mt-1">
+                  Você ainda não tem modelos. Crie um ou instale um da <a href="/app/templates" className="text-[#FF4500] hover:underline">biblioteca pública</a>.
+                </div>
+              )}
             </div>
             <div className="mb-4">
               <label className="block text-xs text-gray-400 font-mono mb-1">DESCRIÇÃO</label>

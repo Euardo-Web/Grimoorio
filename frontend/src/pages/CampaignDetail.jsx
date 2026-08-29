@@ -4,7 +4,7 @@ import Layout from "@/components/Layout";
 import api, { formatApiError, API_BASE } from "@/lib/api";
 import DiceRoller from "@/components/DiceRoller";
 import { toast } from "sonner";
-import { Copy, Plus, Trash, UploadSimple, FileText, Image as ImageIcon, UserCircle } from "@phosphor-icons/react";
+import { Copy, Plus, Trash, UploadSimple, FileText, Image as ImageIcon, UserCircle, Coins, PaperPlaneTilt } from "@phosphor-icons/react";
 
 export default function CampaignDetail() {
   const { id } = useParams();
@@ -14,19 +14,27 @@ export default function CampaignDetail() {
   const [sessions, setSessions] = useState([]);
   const [npcs, setNpcs] = useState([]);
   const [files, setFiles] = useState([]);
+  const [lootHistory, setLootHistory] = useState([]);
   const [sessionForm, setSessionForm] = useState({ title: "", content: "" });
   const [npcForm, setNpcForm] = useState({ name: "", kind: "npc", description: "" });
+  const [lootForm, setLootForm] = useState({
+    character_ids: [],
+    items: [],
+    coins: { gp: 0, sp: 0, cp: 0, pp: 0, ep: 0 },
+    note: "",
+  });
 
   const loadAll = async () => {
     try {
-      const [cData, chData, sData, nData, fData] = await Promise.all([
+      const [cData, chData, sData, nData, fData, lData] = await Promise.all([
         api.get(`/campaigns/${id}`),
         api.get(`/characters?campaign_id=${id}`),
         api.get(`/sessions?campaign_id=${id}`),
         api.get(`/npcs?campaign_id=${id}`),
         api.get(`/files?campaign_id=${id}`),
+        api.get(`/loot?campaign_id=${id}`),
       ]);
-      setC(cData.data); setChars(chData.data); setSessions(sData.data); setNpcs(nData.data); setFiles(fData.data);
+      setC(cData.data); setChars(chData.data); setSessions(sData.data); setNpcs(nData.data); setFiles(fData.data); setLootHistory(lData.data);
     } catch (e) { toast.error(formatApiError(e)); }
   };
   useEffect(() => { loadAll(); }, [id]);
@@ -58,6 +66,27 @@ export default function CampaignDetail() {
   };
   const delFile = async (fid) => { await api.delete(`/files/${fid}`); loadAll(); };
 
+  const addLootItem = () => setLootForm({ ...lootForm, items: [...lootForm.items, { name: "", qty: 1, weight: 0, category: "misc" }] });
+  const updLootItem = (i, k, v) => { const it = [...lootForm.items]; it[i] = { ...it[i], [k]: v }; setLootForm({ ...lootForm, items: it }); };
+  const delLootItem = (i) => setLootForm({ ...lootForm, items: lootForm.items.filter((_, x) => x !== i) });
+  const toggleLootChar = (charId) => setLootForm({
+    ...lootForm,
+    character_ids: lootForm.character_ids.includes(charId)
+      ? lootForm.character_ids.filter((x) => x !== charId)
+      : [...lootForm.character_ids, charId],
+  });
+  const sendLoot = async (e) => {
+    e.preventDefault();
+    if (lootForm.character_ids.length === 0) { toast.error("Selecione ao menos um personagem"); return; }
+    if (lootForm.items.length === 0 && Object.values(lootForm.coins).every((v) => !v)) { toast.error("Adicione itens ou moedas"); return; }
+    try {
+      await api.post("/loot", { ...lootForm, campaign_id: id });
+      toast.success("Loot distribuído!");
+      setLootForm({ character_ids: [], items: [], coins: { gp: 0, sp: 0, cp: 0, pp: 0, ep: 0 }, note: "" });
+      loadAll();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
   if (!c) return <Layout><div className="text-gray-500">Carregando...</div></Layout>;
 
   return (
@@ -78,7 +107,7 @@ export default function CampaignDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-3">
             <div className="flex gap-1 border-b border-white/10 mb-6 overflow-x-auto scroll-thin">
-              {[["overview","Visão geral"],["sessions","Diário"],["npcs","NPCs / Bestiário"],["files","Galeria"],["party","Grupo"]].map(([k, lbl]) => (
+              {[["overview","Visão geral"],["sessions","Diário"],["npcs","NPCs / Bestiário"],["files","Galeria"],["loot","Loot"],["party","Grupo"]].map(([k, lbl]) => (
                 <button key={k} onClick={() => setTab(k)} data-testid={`ctab-${k}`}
                   className={`px-4 py-2 text-sm whitespace-nowrap ${tab === k ? "border-b-2 border-[#FF4500] text-white" : "text-gray-500 hover:text-white"}`}>
                   {lbl}
@@ -194,6 +223,149 @@ export default function CampaignDetail() {
                   })}
                 </div>
               </div>
+            )}
+
+            {tab === "loot" && (
+              c.is_master ? (
+                <div className="space-y-4">
+                  <form onSubmit={sendLoot} className="border border-white/10 p-5 rounded-sm bg-[#12121A]" data-testid="loot-form">
+                    <h3 className="font-display text-xl font-semibold mb-3 flex items-center gap-2">
+                      <Coins size={20} className="text-[#FF4500]" weight="fill" /> Distribuir Loot
+                    </h3>
+
+                    <div className="mb-4">
+                      <div className="text-xs text-gray-400 font-mono mb-2">DESTINATÁRIOS</div>
+                      {chars.length === 0 ? (
+                        <div className="text-sm text-gray-500">Nenhum personagem vinculado ainda.</div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {chars.map((ch) => {
+                            const active = lootForm.character_ids.includes(ch.id);
+                            return (
+                              <button type="button" key={ch.id} onClick={() => toggleLootChar(ch.id)}
+                                data-testid={`loot-target-${ch.id}`}
+                                className={`px-3 py-1.5 rounded-sm text-sm border ${active ? "border-[#FF4500] bg-[#FF4500]/10 text-white" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
+                                {ch.name}
+                              </button>
+                            );
+                          })}
+                          <button type="button" onClick={() => setLootForm({ ...lootForm, character_ids: chars.map((ch) => ch.id) })}
+                            data-testid="loot-select-all"
+                            className="px-3 py-1.5 rounded-sm text-xs border border-dashed border-white/20 text-gray-400 hover:border-white/40">
+                            Todos
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="text-xs text-gray-400 font-mono mb-2">MOEDAS</div>
+                      <div className="grid grid-cols-5 gap-2">
+                        {["gp","sp","cp","pp","ep"].map((k) => (
+                          <div key={k}>
+                            <div className="text-[10px] text-gray-500 font-mono uppercase text-center">{k}</div>
+                            <input type="number" value={lootForm.coins[k]}
+                              onChange={(e) => setLootForm({ ...lootForm, coins: { ...lootForm.coins, [k]: parseInt(e.target.value) || 0 } })}
+                              data-testid={`loot-coin-${k}`}
+                              className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="text-xs text-gray-400 font-mono">ITENS</div>
+                        <button type="button" onClick={addLootItem} data-testid="loot-add-item-btn"
+                          className="text-xs border border-white/10 hover:border-[#FF4500] px-2 py-1 rounded-sm flex items-center gap-1">
+                          <Plus size={12} /> Adicionar item
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {lootForm.items.map((it, i) => (
+                          <div key={i} className="flex flex-wrap gap-2 items-center border border-white/5 p-2 rounded-sm">
+                            <input value={it.name} onChange={(e) => updLootItem(i, "name", e.target.value)}
+                              placeholder="Nome" data-testid={`loot-item-name-${i}`}
+                              className="flex-1 min-w-[120px] bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-sm" />
+                            <select value={it.category} onChange={(e) => updLootItem(i, "category", e.target.value)}
+                              className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs">
+                              <option value="weapon">Arma</option>
+                              <option value="armor">Armadura</option>
+                              <option value="consumable">Consumível</option>
+                              <option value="magic">Mágico</option>
+                              <option value="misc">Diverso</option>
+                            </select>
+                            <input type="number" value={it.qty} onChange={(e) => updLootItem(i, "qty", parseInt(e.target.value) || 1)}
+                              className="w-16 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Qtd" />
+                            <input type="number" step="0.1" value={it.weight} onChange={(e) => updLootItem(i, "weight", parseFloat(e.target.value) || 0)}
+                              className="w-20 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Peso" />
+                            <button type="button" onClick={() => delLootItem(i)} className="p-1 text-gray-500 hover:text-red-400"><Trash size={14} /></button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <input value={lootForm.note} onChange={(e) => setLootForm({ ...lootForm, note: e.target.value })}
+                      placeholder="Nota (ex: recompensa da masmorra)" data-testid="loot-note-input"
+                      className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 text-sm mb-3" />
+
+                    <button type="submit" data-testid="send-loot-btn"
+                      className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+                      <PaperPlaneTilt size={16} weight="fill" /> Enviar para o grupo
+                    </button>
+                  </form>
+
+                  <div>
+                    <h3 className="font-display text-xl font-semibold mb-3">Histórico de recompensas</h3>
+                    <div className="space-y-2">
+                      {lootHistory.length === 0 && <div className="text-sm text-gray-500">Nenhuma recompensa distribuída ainda.</div>}
+                      {lootHistory.map((l) => {
+                        const total = Object.values(l.coins || {}).reduce((s, v) => s + (v || 0), 0);
+                        const targetNames = (l.character_ids || []).map((cid) => chars.find((x) => x.id === cid)?.name || "?").join(", ");
+                        return (
+                          <div key={l.id} className="border border-white/10 p-3 rounded-sm text-sm">
+                            <div className="flex justify-between text-xs text-gray-500 font-mono mb-1">
+                              <span>{new Date(l.created_at).toLocaleString()}</span>
+                              <span>→ {targetNames}</span>
+                            </div>
+                            {l.note && <div className="text-gray-300 mb-1">{l.note}</div>}
+                            <div className="text-xs text-gray-400 font-mono">
+                              {(l.items || []).length} itens • {total} moedas
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="font-display text-xl font-semibold mb-3">Loot recebido</h3>
+                  <div className="space-y-2">
+                    {lootHistory.length === 0 && <div className="text-sm text-gray-500">Nenhuma recompensa ainda.</div>}
+                    {lootHistory.map((l) => {
+                      const totalCoins = Object.entries(l.coins || {}).filter(([_, v]) => v).map(([k, v]) => `${v}${k}`).join(" ");
+                      return (
+                        <div key={l.id} className="border border-white/10 p-3 rounded-sm text-sm">
+                          <div className="flex justify-between text-xs text-gray-500 font-mono mb-1">
+                            <span>{new Date(l.created_at).toLocaleString()}</span>
+                            <span>por {l.master_name}</span>
+                          </div>
+                          {l.note && <div className="text-gray-300 mb-1">{l.note}</div>}
+                          {totalCoins && <div className="text-xs text-[#FF4500] font-mono mb-1">Moedas: {totalCoins}</div>}
+                          {(l.items || []).length > 0 && (
+                            <div className="text-xs text-gray-300">
+                              {l.items.map((it, i) => (
+                                <span key={i} className="inline-block mr-2">• {it.name} ×{it.qty}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
             )}
 
             {tab === "party" && (
