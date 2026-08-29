@@ -25,20 +25,32 @@ export default function DiceRoller({ campaignId, characterId, compact = false })
   };
 
   useEffect(() => {
-    loadRolls();
-    if (!campaignId) return;
+    let mounted = true;
+    const initLoad = async () => {
+      try {
+        const params = {};
+        if (campaignId) params.campaign_id = campaignId;
+        const { data } = await api.get("/rolls", { params });
+        if (!mounted) return;
+        setRolls(data);
+        if (data.length) lastSince.current = data[data.length - 1].created_at;
+      } catch {}
+    };
+    initLoad();
+    if (!campaignId) return () => { mounted = false; };
     const t = setInterval(async () => {
       try {
         const params = { campaign_id: campaignId };
         if (lastSince.current) params.since = lastSince.current;
         const { data } = await api.get("/rolls", { params });
+        if (!mounted) return;
         if (data.length) {
           setRolls((prev) => [...prev, ...data].slice(-100));
           lastSince.current = data[data.length - 1].created_at;
         }
       } catch {}
     }, 3000);
-    return () => clearInterval(t);
+    return () => { mounted = false; clearInterval(t); };
     // eslint-disable-next-line
   }, [campaignId]);
 
@@ -66,18 +78,19 @@ export default function DiceRoller({ campaignId, characterId, compact = false })
       </div>
 
       <div ref={containerRef} className="flex-1 overflow-y-auto scroll-thin min-h-[180px] mb-3 space-y-2">
-        <AnimatePresence>
-          {rolls.length === 0 && (
-            <div className="text-center text-gray-500 text-sm py-8">
-              Nenhuma rolagem ainda. Solte os dados!
-            </div>
-          )}
+        {rolls.length === 0 && (
+          <div className="text-center text-gray-500 text-sm py-8">
+            Nenhuma rolagem ainda. Solte os dados!
+          </div>
+        )}
+        <AnimatePresence initial={false}>
           {rolls.map((r) => {
             const isCrit = r.breakdown?.some((b) => b.rolls?.includes(20));
             const isFumble = r.breakdown?.some((b) => b.rolls?.includes(1) && b.dice === "1d20");
             return (
               <motion.div
                 key={r.id}
+                layout
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}

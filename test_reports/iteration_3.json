@@ -1,0 +1,26 @@
+{
+  "summary": "Frontend-only bug-fix verification for the React 'removeChild / NotFoundError' crash tied to AnimatePresence misuse + setState-after-unmount in DiceRoller.jsx. Ran two Playwright console-capturing smoke runs on the public preview URL. Run 1: landing -> register fresh master (master1788029574@test.com/test1234) -> dashboard (DiceRoller renders, 2x 1d20 rolls animate in) -> create campaign -> campaign detail all 6 tabs (overview/sessions/npcs/files/loot/party) -> nav away -> create character -> character sheet all 6 tabs (stats/skills/spells/inventory/combat/notes) -> sidebar roll + preset 2d6 -> templates -> home -> 3x rapid nav stress -> roll-then-immediate-navigate. Run 2 (login flow) targeted the previously buggy code path specifically: campaign-scoped DiceRoller with the 3s live polling interval — 3 rolls, waited 7s across multiple poll cycles, then rolled and navigated away mid-flight, then 3x rapid mount/unmount of the campaign detail page. RESULT: 0 pageerrors, 0 'removeChild'/'NotFoundError'/'insertBefore'/minified-React reconciliation errors in either run. Only console errors were 2x 'Failed to load resource: 401' from the pre-auth GET /api/auth/me on first load (expected/cosmetic). Rolls persisted and animated correctly (entry counts 2 -> 3 -> 4 on sheet; 3 in campaign, stable after polling). Fix verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard / campaign DiceRoller", "issues": ["Roll list auto-scrolls so the topmost entry is visually clipped mid-row (user name row cut off); consider padding or scroll snap to whole rows.", "Initial page load logs two 401 console errors from the unauthenticated /api/auth/me + /api/auth/refresh probe; harmless but adds red noise to the console."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DiceRoller.jsx: the fix is correct — AnimatePresence now wraps only keyed motion.div items, the empty state sits outside it, and both the init load and the 3s interval guard setState with a `mounted` flag with clearInterval on cleanup. Verified no reconciliation crash under rapid mount/unmount.",
+    "Minor: loadRolls() (called after a roll) has no mounted guard, so a roll immediately followed by navigation can still setState on an unmounted component (React 18 no longer warns, and no crash was observed, but an AbortController or mounted ref would make it fully clean).",
+    "Minor: the empty-state div is rendered whenever rolls.length===0 while AnimatePresence exit animations of the last item may still be running, which can briefly show both; not a crash, cosmetic only."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (skipped per request)", "frontend": "100%"},
+  "seed_data_creation": "Created master account master1788029574@test.com / test1234, campaign TEST_Camp_1788029574 (invite JVEVUS), character TEST_Char_1788029574, and several dice rolls.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "master1788029574@test.com / test1234 (master). NOTE: seeded admin login issue from iteration_2 was not re-tested (backend skipped).",
+  "context_for_next_testing_agent": "removeChild/AnimatePresence bug is confirmed fixed — 0 reconciliation errors across full navigation + live-polling dice roller stress. Outstanding from iteration_2 and NOT retested here (backend skipped): seeded admin email .local rejected by EmailStr, no brute-force lockout, CORS allow_origins=* with credentials, POST /api/loot silently skipping invalid character_ids. Reusable master account: master1788029574@test.com / test1234 with campaign TEST_Camp_1788029574.",
+  "rca_of_the_issue": "Original crash: AnimatePresence held a non-motion, unkeyed empty-state <div> as a sibling of the mapped motion.div children, so framer-motion's exit-animation bookkeeping tried to remove a DOM node React had already detached -> 'removeChild: node is not a child of this node'. Compounded by the 3s polling interval calling setRolls after unmount. Both addressed in DiceRoller.jsx (empty state moved outside AnimatePresence, mounted flag + clearInterval). Reproduction attempts (rapid nav, roll-then-navigate, repeated mount/unmount of the campaign roller across poll cycles) produced no errors."
+}
