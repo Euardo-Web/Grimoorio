@@ -3,10 +3,12 @@ import { useParams, Link } from "react-router-dom";
 import Layout from "@/components/Layout";
 import api, { formatApiError, API_BASE } from "@/lib/api";
 import DiceRoller from "@/components/DiceRoller";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Plus, Trash, UploadSimple, FileText, Image as ImageIcon, UserCircle, Coins, PaperPlaneTilt } from "@phosphor-icons/react";
+import { Copy, Plus, Trash, UploadSimple, FileText, Image as ImageIcon, UserCircle, Coins, PaperPlaneTilt, DownloadSimple } from "@phosphor-icons/react";
 
 export default function CampaignDetail() {
+  const { user } = useAuth();
   const { id } = useParams();
   const [c, setC] = useState(null);
   const [tab, setTab] = useState("overview");
@@ -84,6 +86,14 @@ export default function CampaignDetail() {
       toast.success("Loot distribuído!");
       setLootForm({ character_ids: [], items: [], coins: { gp: 0, sp: 0, cp: 0, pp: 0, ep: 0 }, note: "" });
       loadAll();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const copyItemToInventory = async (item, charId) => {
+    try {
+      await api.post(`/characters/${charId}/inventory`, item);
+      const target = chars.find((x) => x.id === charId);
+      toast.success(`Item copiado para ${target?.name || "ficha"}`);
     } catch (e) { toast.error(formatApiError(e)); }
   };
 

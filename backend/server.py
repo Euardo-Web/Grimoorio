@@ -525,6 +525,34 @@ async def rest_character(char_id: str, kind: str = "long", user=Depends(get_curr
     doc = await db.characters.find_one({"id": char_id})
     return strip_id(doc)
 
+@api.post("/characters/{char_id}/inventory")
+async def add_inventory_item(char_id: str, item: Dict[str, Any], user=Depends(get_current_user)):
+    c = await db.characters.find_one({"id": char_id})
+    if not c:
+        raise HTTPException(status_code=404, detail="Personagem não encontrado")
+    # Owner or campaign master can add items
+    is_owner = c["owner_id"] == user["id"]
+    is_master = False
+    if not is_owner and c.get("campaign_id"):
+        camp = await db.campaigns.find_one({"id": c["campaign_id"]})
+        is_master = bool(camp and camp["master_id"] == user["id"])
+    if not (is_owner or is_master):
+        raise HTTPException(status_code=403, detail="Sem permissão")
+    inv = list(c.get("inventory") or [])
+    inv.append({
+        "name": str(item.get("name") or "Item"),
+        "qty": int(item.get("qty") or 1),
+        "weight": float(item.get("weight") or 0),
+        "category": str(item.get("category") or "misc"),
+        "equipped": False,
+    })
+    await db.characters.update_one(
+        {"id": char_id},
+        {"$set": {"inventory": inv, "updated_at": now_iso()}}
+    )
+    doc = await db.characters.find_one({"id": char_id})
+    return strip_id(doc)
+
 # --------- Dice Rolls ---------
 import re
 def roll_expression(expr: str) -> dict:
