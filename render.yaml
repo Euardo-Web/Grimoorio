@@ -1,0 +1,12 @@
+services:
+  - type: static_site
+    name: grimoorio-frontend
+    rootDir: frontend
+    buildCommand: yarn install && yarn build
+    publishDirectory: build
+    buildFilter:
+      paths:
+        - frontend/**
+    env:
+      - key: REACT_APP_BACKEND_URL
+        value: https://grimoorio-backend.onrender.com
