@@ -5,7 +5,7 @@ import api, { formatApiError, API_BASE } from "@/lib/api";
 import DiceRoller from "@/components/DiceRoller";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Plus, Trash, UploadSimple, FileText, Image as ImageIcon, UserCircle, Coins, PaperPlaneTilt, DownloadSimple } from "@phosphor-icons/react";
+import { Copy, Plus, Trash, UploadSimple, FileText, ImageSquare as ImageIcon, UserCircle, Coins, PaperPlaneTilt, DownloadSimple } from "@phosphor-icons/react";
 
 export default function CampaignDetail() {
   const { user } = useAuth();
