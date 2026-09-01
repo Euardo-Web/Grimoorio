@@ -945,7 +945,7 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=["https://grimoorio-frontend.onrender.com"],
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
