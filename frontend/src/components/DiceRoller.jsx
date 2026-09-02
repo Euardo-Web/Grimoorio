@@ -116,13 +116,13 @@ export default function DiceRoller({ campaignId, characterId, compact = false })
       <div className="space-y-2">
         <div className="flex gap-2">
           <input
-            type="text"
-            value={expr}
-            onChange={(e) => setExpr(e.target.value)}
-            placeholder="1d20+5"
-            data-testid="dice-expr-input"
-            className="flex-1 bg-[#12121A] border border-white/10 rounded-sm px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#FF4500]"
-          />
+  type="text"
+  value={expr}
+  onChange={(e) => setExpr(e.target.value)}
+  placeholder="1d20+5"
+  data-testid="dice-expr-input"
+  className="flex-1 min-w-0 bg-[#12121A] border border-white/10 rounded-sm px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#FF4500]"
+/>
           <button
   onClick={() => roll(expr)}
   disabled={loading || !expr}
