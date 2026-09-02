@@ -124,13 +124,13 @@ export default function DiceRoller({ campaignId, characterId, compact = false })
             className="flex-1 bg-[#12121A] border border-white/10 rounded-sm px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#FF4500]"
           />
           <button
-            onClick={() => roll(expr)}
-            disabled={loading || !expr}
-            data-testid="roll-btn"
-            className="px-4 py-2 bg-[#FF4500] hover:bg-[#FF6347] disabled:opacity-50 text-black font-medium rounded-sm text-sm flex items-center gap-1"
-          >
-            <Cube size={16} weight="fill" /> Rolar
-          </button>
+  onClick={() => roll(expr)}
+  disabled={loading || !expr}
+  data-testid="roll-btn"
+  className="shrink-0 px-4 py-2 bg-[#FF4500] hover:bg-[#FF6347] disabled:opacity-50 text-black font-medium rounded-sm text-sm flex items-center gap-1"
+>
+  <Cube size={16} weight="fill" /> Rolar
+</button>
         </div>
         <input
           type="text"
