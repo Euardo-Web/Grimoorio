@@ -42,7 +42,7 @@ export default function Layout({ children, right }) {
     <div className="min-h-screen flex bg-[#0A0A0E] relative">
       {/* Sidebar */}
       <aside
-        className={`${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:static top-0 left-0 h-screen z-40 w-60 bg-[#0A0A0E] border-r border-white/5 flex flex-col`}
+        className={`${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:sticky top-0 left-0 h-screen z-40 w-60 bg-[#0A0A0E] border-r border-white/5 flex flex-col`}
       >
         <div className="px-5 py-6 border-b border-white/5 flex items-center justify-between">
           <Link to="/app" className="font-display text-2xl font-bold tracking-tight text-white" data-testid="brand-link">
