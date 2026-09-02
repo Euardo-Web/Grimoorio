@@ -46,7 +46,7 @@ export default function Layout({ children, right }) {
       >
         <div className="px-5 py-6 border-b border-white/5 flex items-center justify-between">
           <Link to="/app" className="font-display text-2xl font-bold tracking-tight text-white" data-testid="brand-link">
-            <span className="text-[#FF4500]">✦</span> Grimório
+            <span className="text-[#FF4500]">🧌</span> Grimório
           </Link>
           <button className="md:hidden text-gray-400" onClick={() => setOpen(false)} data-testid="close-menu-btn">
             <X size={20} />
