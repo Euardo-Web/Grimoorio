@@ -25,6 +25,22 @@ export default function CampaignDetail() {
     coins: { gp: 0, sp: 0, cp: 0, pp: 0, ep: 0 },
     note: "",
   });
+  const [cloneTargets, setCloneTargets] = useState({});
+  const [cloningKey, setCloningKey] = useState(null);
+
+  const cloneLootItem = async (lootId, itemIndex, characterId) => {
+    if (!characterId) { toast.error("Selecione um personagem"); return; }
+    setCloningKey(`${lootId}:${itemIndex}`);
+    try {
+      const { data } = await api.post(`/loot/${lootId}/clone-item`, {
+        character_id: characterId,
+        item_index: itemIndex,
+      });
+      const charName = chars.find((x) => x.id === characterId)?.name || "personagem";
+      toast.success(`"${data.item.name}" clonado para o inventário de ${charName}`);
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setCloningKey(null); }
+  };
 
   const loadAll = async () => {
     try {
@@ -332,6 +348,7 @@ export default function CampaignDetail() {
                       {lootHistory.map((l) => {
                         const total = Object.values(l.coins || {}).reduce((s, v) => s + (v || 0), 0);
                         const targetNames = (l.character_ids || []).map((cid) => chars.find((x) => x.id === cid)?.name || "?").join(", ");
+                        const target = cloneTargets[l.id] || chars[0]?.id || "";
                         return (
                           <div key={l.id} className="border border-white/10 p-3 rounded-sm text-sm">
                             <div className="flex justify-between text-xs text-gray-500 font-mono mb-1">
@@ -342,6 +359,31 @@ export default function CampaignDetail() {
                             <div className="text-xs text-gray-400 font-mono">
                               {(l.items || []).length} itens • {total} moedas
                             </div>
+                            {(l.items || []).length > 0 && chars.length > 0 && (
+                              <div className="mt-2 border-t border-white/5 pt-2">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-[10px] text-gray-500 font-mono uppercase">Clonar para</span>
+                                  <select value={target} data-testid={`clone-target-${l.id}`}
+                                    onChange={(e) => setCloneTargets({ ...cloneTargets, [l.id]: e.target.value })}
+                                    className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs">
+                                    {chars.map((ch) => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
+                                  </select>
+                                </div>
+                                <div className="space-y-1">
+                                  {l.items.map((it, i) => (
+                                    <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-gray-300">• {it.name} ×{it.qty}</span>
+                                      <button type="button" disabled={cloningKey === `${l.id}:${i}`}
+                                        onClick={() => cloneLootItem(l.id, i, target)}
+                                        data-testid={`clone-item-${l.id}-${i}`}
+                                        className="border border-white/10 hover:border-[#FF4500] hover:text-[#FF4500] px-2 py-1 rounded-sm flex items-center gap-1 disabled:opacity-50">
+                                        <Copy size={12} /> Clonar para inventário
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}

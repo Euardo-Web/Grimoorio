@@ -736,6 +736,63 @@ async def list_loot(campaign_id: str, user=Depends(get_current_user)):
         strip_id(l); result.append(l)
     return result
 
+class LootCloneIn(BaseModel):
+    character_id: str
+    item_index: Optional[int] = None
+    item: Optional[Dict[str, Any]] = None
+    qty: Optional[int] = None
+
+@api.post("/loot/{loot_id}/clone-item")
+async def clone_loot_item(loot_id: str, body: LootCloneIn, user=Depends(get_current_user)):
+    """Copy a loot item into a character's inventory, keeping the original loot intact."""
+    loot = await db.loot_history.find_one({"id": loot_id})
+    if not loot:
+        raise HTTPException(status_code=404, detail="Loot não encontrado")
+    camp = await get_campaign_or_403(loot["campaign_id"], user, require_master=True)
+    items = loot.get("items") or []
+    source = None
+    if body.item_index is not None:
+        if body.item_index < 0 or body.item_index >= len(items):
+            raise HTTPException(status_code=400, detail="Item inválido")
+        source = items[body.item_index]
+    elif body.item:
+        source = body.item
+    if not source:
+        raise HTTPException(status_code=400, detail="Informe o item a clonar")
+
+    c = await db.characters.find_one({"id": body.character_id, "campaign_id": loot["campaign_id"]})
+    if not c:
+        raise HTTPException(status_code=404, detail="Personagem não encontrado nesta campanha")
+
+    # Independent deep copy: keeps every custom attribute of the original item
+    import copy as _copy
+    clone = _copy.deepcopy(dict(source))
+    clone.pop("_id", None)
+    clone["name"] = str(clone.get("name") or "Item")
+    clone["qty"] = int(body.qty if body.qty else (clone.get("qty") or 1))
+    clone["weight"] = float(clone.get("weight") or 0)
+    clone["category"] = str(clone.get("category") or "misc")
+    clone["equipped"] = False
+    clone["cloned_from_loot_id"] = loot_id
+
+    inv = list(c.get("inventory") or [])
+    inv.append(clone)
+    await db.characters.update_one(
+        {"id": body.character_id},
+        {"$set": {"inventory": inv, "updated_at": now_iso()},
+         "$push": {"history": {"at": now_iso(), "action": "loot_item_cloned",
+                               "note": clone["name"]}}}
+    )
+    await db.notifications.insert_one({
+        "id": new_id(), "user_id": c["owner_id"], "type": "loot",
+        "message": f"{user['name']} adicionou '{clone['name']}' ao inventário de {c['name']} em '{camp['name']}'.",
+        "created_at": now_iso(), "read": False,
+    })
+    doc = await db.characters.find_one({"id": body.character_id})
+    return {"ok": True, "item": clone, "character": strip_id(doc)}
+
+
+
 # --------- Session Notes ---------
 @api.post("/sessions")
 async def create_session_note(body: SessionNoteIn, user=Depends(get_current_user)):
@@ -794,20 +851,63 @@ async def create_template(body: TemplateIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Apenas mestres")
     doc = {**body.model_dump(), "id": new_id(), "author_id": user["id"],
            "author_name": user["name"], "created_at": now_iso(),
-           "installs": 0}
+           "installs": 0, "likes": 0}
     await db.templates.insert_one(doc)
     return strip_id(doc)
 
 @api.get("/templates")
-async def list_templates(scope: str = "mine", user=Depends(get_current_user)):
+async def list_templates(scope: str = "mine", q: Optional[str] = None,
+                         sort: str = "likes", user=Depends(get_current_user)):
     if scope == "public":
-        q: Dict[str, Any] = {"is_public": True}
+        query: Dict[str, Any] = {"is_public": True}
     else:
-        q = {"author_id": user["id"]}
+        query = {"author_id": user["id"]}
+    if q and q.strip():
+        term = re.escape(q.strip())
+        rx = {"$regex": term, "$options": "i"}
+        query["$or"] = [{"name": rx}, {"description": rx}, {"system": rx},
+                        {"author_name": rx}]
+    cursor = db.templates.find(query)
+    if scope == "public" and sort != "recent":
+        cursor = cursor.sort([("likes", -1), ("installs", -1), ("created_at", -1)])
+    else:
+        cursor = cursor.sort("created_at", -1)
     result = []
-    async for t in db.templates.find(q).sort("created_at", -1):
-        strip_id(t); result.append(t)
+    ids = []
+    async for t in cursor:
+        strip_id(t)
+        t["likes"] = int(t.get("likes") or 0)
+        ids.append(t["id"])
+        result.append(t)
+    liked = set()
+    if ids:
+        async for lk in db.template_likes.find({"user_id": user["id"], "template_id": {"$in": ids}}):
+            liked.add(lk["template_id"])
+    for t in result:
+        t["liked_by_me"] = t["id"] in liked
     return result
+
+@api.post("/templates/{tid}/like")
+async def toggle_template_like(tid: str, user=Depends(get_current_user)):
+    """Toggle a like. One like per user per template."""
+    t = await db.templates.find_one({"id": tid})
+    if not t:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado")
+    if not t.get("is_public") and t.get("author_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Modelo privado")
+    existing = await db.template_likes.find_one({"template_id": tid, "user_id": user["id"]})
+    if existing:
+        await db.template_likes.delete_one({"template_id": tid, "user_id": user["id"]})
+        liked = False
+    else:
+        await db.template_likes.insert_one({
+            "id": new_id(), "template_id": tid, "user_id": user["id"],
+            "created_at": now_iso(),
+        })
+        liked = True
+    count = await db.template_likes.count_documents({"template_id": tid})
+    await db.templates.update_one({"id": tid}, {"$set": {"likes": count}})
+    return {"ok": True, "liked": liked, "likes": count}
 
 @api.get("/templates/{tid}")
 async def get_template(tid: str, user=Depends(get_current_user)):

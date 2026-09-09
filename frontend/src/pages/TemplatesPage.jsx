@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
 import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Plus, Books, Globe, DownloadSimple, Trash } from "@phosphor-icons/react";
+import { Plus, Books, Globe, DownloadSimple, Trash, Heart, MagnifyingGlass } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
 export default function TemplatesPage() {
@@ -11,13 +11,25 @@ export default function TemplatesPage() {
   const [scope, setScope] = useState("mine");
   const [items, setItems] = useState([]);
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sort, setSort] = useState("likes");
   const [form, setForm] = useState({ name: "", system: "custom", description: "", is_public: false });
 
-  const load = async () => {
-    const { data } = await api.get(`/templates?scope=${scope}`);
-    setItems(data);
-  };
-  useEffect(() => { load(); }, [scope]);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const load = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ scope, sort });
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      const { data } = await api.get(`/templates?${params.toString()}`);
+      setItems(data);
+    } catch (e) { toast.error(formatApiError(e)); }
+  }, [scope, sort, debouncedSearch]);
+  useEffect(() => { load(); }, [load]);
 
   const create = async (e) => {
     e.preventDefault();
@@ -27,6 +39,12 @@ export default function TemplatesPage() {
   const install = async (id) => {
     try { await api.post(`/templates/${id}/install`); toast.success("Adicionado aos seus modelos"); }
     catch (e) { toast.error(formatApiError(e)); }
+  };
+  const toggleLike = async (id) => {
+    try {
+      const { data } = await api.post(`/templates/${id}/like`);
+      setItems((prev) => prev.map((t) => (t.id === id ? { ...t, likes: data.likes, liked_by_me: data.liked } : t)));
+    } catch (e) { toast.error(formatApiError(e)); }
   };
   const remove = async (id) => {
     if (!window.confirm("Excluir modelo?")) return;
@@ -59,6 +77,23 @@ export default function TemplatesPage() {
           ))}
         </div>
 
+        <div className="flex flex-wrap gap-2 items-center mb-6">
+          <div className="relative flex-1 min-w-[220px]">
+            <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nome, sistema ou descrição..." data-testid="template-search-input"
+              className="w-full bg-[#0A0A0E] border border-white/10 focus:border-[#FF4500] outline-none rounded-sm pl-9 pr-3 py-2 text-sm" />
+          </div>
+          {scope === "public" && (
+            <select value={sort} onChange={(e) => setSort(e.target.value)} data-testid="template-sort-select"
+              className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 text-sm">
+              <option value="likes">Mais populares</option>
+              <option value="recent">Mais recentes</option>
+            </select>
+          )}
+        </div>
+
+
         {creating && (
           <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#12121A] mb-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -87,7 +122,9 @@ export default function TemplatesPage() {
 
         {items.length === 0 ? (
           <div className="border border-dashed border-white/10 p-16 text-center rounded-sm text-gray-500">
-            {scope === "mine" ? "Você ainda não criou modelos." : "A biblioteca pública está vazia. Seja o primeiro a publicar!"}
+            {debouncedSearch.trim()
+              ? `Nenhum modelo encontrado para "${debouncedSearch.trim()}".`
+              : scope === "mine" ? "Você ainda não criou modelos." : "A biblioteca pública está vazia. Seja o primeiro a publicar!"}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -100,14 +137,21 @@ export default function TemplatesPage() {
                 <div className="text-xs text-gray-500 font-mono uppercase mb-2">{t.system}</div>
                 <div className="text-sm text-gray-400 line-clamp-2 mb-3">{t.description || "Sem descrição"}</div>
                 <div className="text-xs text-gray-500 font-mono mb-3">
-                  Por {t.author_name} • {t.installs || 0} instalações
+                  Por {t.author_name} • {t.installs || 0} instalações • {t.likes || 0} likes
                 </div>
                 <div className="flex gap-2">
                   {scope === "public" ? (
-                    <button onClick={() => install(t.id)} data-testid={`install-${t.id}`}
-                      className="flex-1 border border-[#FF4500] text-[#FF4500] hover:bg-[#FF4500]/10 px-3 py-1.5 rounded-sm text-sm flex items-center justify-center gap-1">
-                      <DownloadSimple size={14} /> Instalar
-                    </button>
+                    <>
+                      <button onClick={() => toggleLike(t.id)} data-testid={`like-${t.id}`}
+                        title={t.liked_by_me ? "Remover like" : "Dar like"}
+                        className={`px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 border ${t.liked_by_me ? "border-[#FF4500] bg-[#FF4500]/10 text-[#FF4500]" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
+                        <Heart size={14} weight={t.liked_by_me ? "fill" : "regular"} /> {t.likes || 0}
+                      </button>
+                      <button onClick={() => install(t.id)} data-testid={`install-${t.id}`}
+                        className="flex-1 border border-[#FF4500] text-[#FF4500] hover:bg-[#FF4500]/10 px-3 py-1.5 rounded-sm text-sm flex items-center justify-center gap-1">
+                        <DownloadSimple size={14} /> Instalar
+                      </button>
+                    </>
                   ) : (
                     <>
                       <Link to={`/app/templates/${t.id}`} className="flex-1 border border-white/10 hover:border-white/30 px-3 py-1.5 rounded-sm text-sm text-center">Editar</Link>
