@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { DiceSix, Shield, Sparkle, Users, Scroll, Sword } from "@phosphor-icons/react";
+import { DiceSix, Shield, Sparkle, Users, Scroll, Sword, Heart } from "@phosphor-icons/react";
 import { Navigate } from "react-router-dom";
 
 export default function Landing() {
@@ -22,7 +22,17 @@ export default function Landing() {
         <div className="font-display text-2xl font-bold">
           <span className="text-[#FF4500]">🧌</span> Grimoorio
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <a
+            href="https://apoia.se/grimoorio"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="landing-support-btn"
+            className="text-sm text-[#FF4500] hover:text-[#FF6347] px-4 py-2 inline-flex items-center gap-1.5"
+          >
+            <Heart size={16} weight="fill" />
+            Apoie
+          </a>
           <Link to="/login" data-testid="landing-login-btn" className="text-sm text-gray-300 hover:text-white px-4 py-2">Entrar</Link>
           <Link to="/register" data-testid="landing-signup-btn" className="text-sm bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm">Criar conta</Link>
         </div>
