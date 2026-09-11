@@ -20,7 +20,7 @@ export default function Landing() {
     <div className="min-h-screen bg-[#0A0A0E] text-white relative overflow-hidden">
       <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-6">
         <div className="font-display text-2xl font-bold">
-          <span className="text-[#FF4500]">✦</span> Grimório
+          <span className="text-[#FF4500]">🧌</span> Grimoorio
         </div>
         <div className="flex gap-3">
           <Link to="/login" data-testid="landing-login-btn" className="text-sm text-gray-300 hover:text-white px-4 py-2">Entrar</Link>
