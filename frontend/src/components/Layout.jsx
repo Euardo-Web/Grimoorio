@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { House, Users, UserCircle, Books, SignOut, List, X, Bell } from "@phosphor-icons/react";
+import { House, Users, UserCircle, Books, SignOut, List, X, Bell, Heart } from "@phosphor-icons/react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 
@@ -71,6 +71,18 @@ export default function Layout({ children, right }) {
             );
           })}
         </nav>
+        <div className="px-2 pb-2">
+          <a
+            href="https://apoia.se/grimoorio"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="nav-support"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium text-[#FF4500] hover:bg-[#FF4500]/10 transition-colors"
+          >
+            <Heart size={18} weight="fill" />
+            Apoie o projeto
+          </a>
+        </div>
         <div className="p-4 border-t border-white/5">
           <div className="text-xs text-gray-500 mb-2 font-mono">{user?.email}</div>
           <div className="text-sm text-gray-300 mb-3 flex items-center gap-2">
