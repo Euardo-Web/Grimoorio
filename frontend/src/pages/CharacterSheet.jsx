@@ -212,14 +212,16 @@ export default function CharacterSheet() {
                 <button onClick={addSkill} data-testid="add-skill-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 mb-3"><Plus size={14} /> Adicionar perícia</button>
                 <div className="space-y-2">
                   {(c.skills || []).map((s, i) => (
-                    <div key={i} className="flex gap-2 items-center border border-white/10 p-2 rounded-sm">
+                    <div key={i} className="flex flex-col sm:flex-row gap-2 sm:items-center border border-white/10 p-2 rounded-sm">
                       <input value={s.name} onChange={(e) => updSkill(i, "name", e.target.value)} onBlur={() => save({})}
-                        className="flex-1 bg-transparent outline-none focus:text-[#FF4500]" placeholder="Nome" data-testid={`skill-name-${i}`} />
-                      <input type="number" value={s.value} onChange={(e) => updSkill(i, "value", e.target.value)} onBlur={() => save({})}
-                        className="w-16 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Valor" data-testid={`skill-value-${i}`} />
-                      <input type="number" value={s.bonus} onChange={(e) => updSkill(i, "bonus", e.target.value)} onBlur={() => save({})}
-                        className="w-16 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Bônus" />
-                      <button onClick={() => { delSkill(i); setTimeout(() => save({}), 100); }} data-testid={`del-skill-${i}`} className="p-1 text-gray-500 hover:text-red-400"><Trash size={14} /></button>
+                        className="min-w-0 flex-1 bg-transparent outline-none focus:text-[#FF4500]" placeholder="Nome" data-testid={`skill-name-${i}`} />
+                      <div className="flex gap-2 items-center shrink-0">
+                        <input type="number" value={s.value} onChange={(e) => updSkill(i, "value", e.target.value)} onBlur={() => save({})}
+                          className="w-16 shrink-0 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Valor" data-testid={`skill-value-${i}`} />
+                        <input type="number" value={s.bonus} onChange={(e) => updSkill(i, "bonus", e.target.value)} onBlur={() => save({})}
+                          className="w-16 shrink-0 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Bônus" />
+                        <button onClick={() => { delSkill(i); setTimeout(() => save({}), 100); }} data-testid={`del-skill-${i}`} className="p-1 shrink-0 text-gray-500 hover:text-red-400"><Trash size={14} /></button>
+                      </div>
                     </div>
                   ))}
                 </div>
