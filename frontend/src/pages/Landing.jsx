@@ -20,7 +20,7 @@ export default function Landing() {
     <div className="min-h-screen bg-[#0A0A0E] text-white relative overflow-hidden">
       <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-6">
         <div className="font-display text-2xl font-bold">
-          <span className="text-[#FF4500]">🧌</span> Grimoorio
+          <span className="text-[#FF4500]">🖋</span> Grimoorio
         </div>
         <div className="flex gap-3 items-center">
           <a
