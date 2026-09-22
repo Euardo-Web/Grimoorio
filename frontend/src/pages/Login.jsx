@@ -23,7 +23,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center px-4 bg-[#0A0A0E]">
       <div className="w-full max-w-md">
         <Link to="/" className="block text-center mb-8 font-display text-3xl font-bold">
-          <span className="text-[#FF4500]">🧌</span> Grimoorio
+          <span className="text-[#FF4500]">🖋</span> Grimoorio
         </Link>
         <form onSubmit={onSubmit} className="border border-white/10 p-8 rounded-sm bg-[#12121A]" data-testid="login-form">
           <h1 className="font-display text-3xl font-bold mb-1">Entrar</h1>
