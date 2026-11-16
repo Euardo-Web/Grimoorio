@@ -1,6 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Toaster } from "sonner";
+import PublicGuide from "@/pages/PublicGuide";
+import { pages } from "@/seo/pages";
+import RouteMetadata from "@/seo/RouteMetadata";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -24,8 +27,11 @@ function Protected({ children }) {
 
 function AppRoutes() {
   return (
+    <>
+    <RouteMetadata />
     <Routes>
       <Route path="/" element={<Landing />} />
+      {pages.filter(page => page.path !== "/").map(page => <Route key={page.path} path={page.path} element={<PublicGuide page={page} />} />)}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/app" element={<Protected><Dashboard /></Protected>} />
@@ -37,6 +43,7 @@ function AppRoutes() {
       <Route path="/app/templates/:id" element={<Protected><TemplateEditor /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 

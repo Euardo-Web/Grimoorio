@@ -54,8 +54,9 @@
   "scripts": {
     "start": "vite --host 127.0.0.1 --port 3000",
     "dev": "vite --host 127.0.0.1 --port 3000",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "build": "node scripts/build-seo.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test:seo": "node --test scripts/seo.test.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.3.0",
