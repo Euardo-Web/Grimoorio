@@ -1,3 +1,4 @@
+import { ResourceImage, ImagePicker, uploadResourceImage, removeResourceImage } from "@/components/ResourceImage";
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Layout from "@/components/Layout";
@@ -19,6 +20,8 @@ export default function CampaignDetail() {
   const [lootHistory, setLootHistory] = useState([]);
   const [sessionForm, setSessionForm] = useState({ title: "", content: "" });
   const [npcForm, setNpcForm] = useState({ name: "", kind: "npc", description: "" });
+  const [npcPhoto, setNpcPhoto] = useState(null);
+  const [addingNpc, setAddingNpc] = useState(false);
   const [lootForm, setLootForm] = useState({
     character_ids: [],
     items: [],
@@ -66,10 +69,20 @@ export default function CampaignDetail() {
   };
   const delSession = async (sid) => { await api.delete(`/sessions/${sid}`); loadAll(); };
 
-  const addNpc = async (e) => {
-    e.preventDefault();
-    try { await api.post("/npcs", { ...npcForm, campaign_id: id }); setNpcForm({ name: "", kind: "npc", description: "" }); loadAll(); }
-    catch (e) { toast.error(formatApiError(e)); }
+  const addNpc = async (event) => {
+    event.preventDefault();
+    if (addingNpc) return;
+    setAddingNpc(true);
+    try {
+      const { data } = await api.post("/npcs", { ...npcForm, campaign_id: id });
+      if (npcPhoto) {
+        try { await uploadResourceImage("npcs", data.id, npcPhoto); }
+        catch (error) { toast.error("Personagem criado, mas a foto não foi enviada: " + formatApiError(error)); }
+      }
+      setNpcForm({ name: "", kind: "npc", description: "" }); setNpcPhoto(null);
+      await loadAll();
+    } catch (error) { toast.error(formatApiError(error)); }
+    finally { setAddingNpc(false); }
   };
   const delNpc = async (nid) => { await api.delete(`/npcs/${nid}`); loadAll(); };
 
@@ -118,6 +131,11 @@ export default function CampaignDetail() {
   return (
     <Layout>
       <div className="max-w-7xl mx-auto">
+        <ResourceImage assetId={c.cover_file_id} alt={`Capa de ${c.name}`} initials={c.name?.slice(0,1)} className="campaign-banner" />
+        {c.is_master && <ImagePicker label="Capa da campanha" compact assetId={c.cover_file_id}
+          onSelect={async (file) => { await uploadResourceImage("campaigns", id, file); await loadAll(); }}
+          onRemove={async () => { await removeResourceImage("campaigns", id); await loadAll(); }} />}
+
         <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <div className="text-xs text-gray-500 font-mono mb-1">// campanha • {c.system.toUpperCase()}</div>
@@ -125,8 +143,8 @@ export default function CampaignDetail() {
             <p className="text-gray-400 mt-2 max-w-2xl">{c.description}</p>
           </div>
           <button onClick={copyCode} data-testid="copy-invite-btn"
-            className="border border-white/10 hover:border-[#FF4500] px-4 py-2 rounded-sm text-sm flex items-center gap-2">
-            <Copy size={14} /> Convite: <span className="font-mono text-[#FF4500]">{c.invite_code}</span>
+            className="border border-white/10 hover:border-[#D5AB68] px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+            <Copy size={14} /> Convite: <span className="font-mono text-[#D5AB68]">{c.invite_code}</span>
           </button>
         </div>
 
@@ -135,7 +153,7 @@ export default function CampaignDetail() {
             <div className="flex gap-1 border-b border-white/10 mb-6 overflow-x-auto scroll-thin">
               {[["overview","Visão geral"],["sessions","Diário"],["npcs","NPCs / Bestiário"],["files","Galeria"],["loot","Loot"],["party","Grupo"]].map(([k, lbl]) => (
                 <button key={k} onClick={() => setTab(k)} data-testid={`ctab-${k}`}
-                  className={`px-4 py-2 text-sm whitespace-nowrap ${tab === k ? "border-b-2 border-[#FF4500] text-white" : "text-gray-500 hover:text-white"}`}>
+                  className={`px-4 py-2 text-sm whitespace-nowrap ${tab === k ? "border-b-2 border-[#D5AB68] text-white" : "text-gray-500 hover:text-white"}`}>
                   {lbl}
                 </button>
               ))}
@@ -143,11 +161,11 @@ export default function CampaignDetail() {
 
             {tab === "overview" && (
               <div className="space-y-4">
-                <div className="border border-white/10 p-6 rounded-sm bg-[#12121A]">
+                <div className="border border-white/10 p-6 rounded-sm bg-[#191F22]">
                   <div className="grid grid-cols-3 gap-4 text-center">
-                    <div><div className="text-3xl font-display font-bold text-[#FF4500]">{c.members?.length || 0}</div><div className="text-xs text-gray-500 font-mono">MEMBROS</div></div>
-                    <div><div className="text-3xl font-display font-bold text-[#FF4500]">{chars.length}</div><div className="text-xs text-gray-500 font-mono">FICHAS</div></div>
-                    <div><div className="text-3xl font-display font-bold text-[#FF4500]">{sessions.length}</div><div className="text-xs text-gray-500 font-mono">SESSÕES</div></div>
+                    <div><div className="text-3xl font-display font-bold text-[#D5AB68]">{c.members?.length || 0}</div><div className="text-xs text-gray-500 font-mono">MEMBROS</div></div>
+                    <div><div className="text-3xl font-display font-bold text-[#D5AB68]">{chars.length}</div><div className="text-xs text-gray-500 font-mono">FICHAS</div></div>
+                    <div><div className="text-3xl font-display font-bold text-[#D5AB68]">{sessions.length}</div><div className="text-xs text-gray-500 font-mono">SESSÕES</div></div>
                   </div>
                 </div>
               </div>
@@ -156,14 +174,14 @@ export default function CampaignDetail() {
             {tab === "sessions" && (
               <div>
                 {c.is_master && (
-                  <form onSubmit={addSession} className="border border-white/10 p-4 rounded-sm bg-[#12121A] mb-4" data-testid="session-form">
+                  <form onSubmit={addSession} className="border border-white/10 p-4 rounded-sm bg-[#191F22] mb-4" data-testid="session-form">
                     <input required value={sessionForm.title} onChange={(e) => setSessionForm({ ...sessionForm, title: e.target.value })}
                       placeholder="Título da sessão" data-testid="session-title-input"
-                      className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 mb-2" />
+                      className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 mb-2" />
                     <textarea required value={sessionForm.content} onChange={(e) => setSessionForm({ ...sessionForm, content: e.target.value })}
                       placeholder="Notas, resumo, plot hooks..." rows={4} data-testid="session-content-input"
-                      className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 mb-2" />
-                    <button className="bg-[#FF4500] text-black font-medium px-4 py-1.5 rounded-sm text-sm" data-testid="add-session-btn">Registrar sessão</button>
+                      className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 mb-2" />
+                    <button className="bg-[#D5AB68] text-black font-medium px-4 py-1.5 rounded-sm text-sm" data-testid="add-session-btn">Registrar sessão</button>
                   </form>
                 )}
                 <div className="space-y-3">
@@ -186,25 +204,28 @@ export default function CampaignDetail() {
             {tab === "npcs" && (
               <div>
                 {c.is_master && (
-                  <form onSubmit={addNpc} className="border border-white/10 p-4 rounded-sm bg-[#12121A] mb-4">
+                  <form onSubmit={addNpc} className="border border-white/10 p-4 rounded-sm bg-[#191F22] mb-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
                       <input required value={npcForm.name} onChange={(e) => setNpcForm({ ...npcForm, name: e.target.value })}
-                        placeholder="Nome" data-testid="npc-name-input" className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                        placeholder="Nome" data-testid="npc-name-input" className="bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
                       <select value={npcForm.kind} onChange={(e) => setNpcForm({ ...npcForm, kind: e.target.value })}
-                        data-testid="npc-kind-select" className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                        data-testid="npc-kind-select" className="bg-[#101416] border border-white/10 rounded-sm px-3 py-2">
                         <option value="npc">NPC</option>
                         <option value="monster">Monstro</option>
                       </select>
-                      <button className="bg-[#FF4500] text-black font-medium rounded-sm text-sm" data-testid="add-npc-btn"><Plus size={14} className="inline"/> Adicionar</button>
+                      <button className="bg-[#D5AB68] text-black font-medium rounded-sm text-sm" data-testid="add-npc-btn" disabled={addingNpc}><Plus size={14} className="inline"/> Adicionar</button>
                     </div>
                     <textarea value={npcForm.description} onChange={(e) => setNpcForm({ ...npcForm, description: e.target.value })}
                       placeholder="Descrição, motivação, stats..." rows={2}
-                      className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                      className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
+                    <ImagePicker label="Foto do novo NPC ou monstro" file={npcPhoto} onSelect={setNpcPhoto} onRemove={() => setNpcPhoto(null)} disabled={addingNpc} />
                   </form>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="npc-grid">
                   {npcs.map((n) => (
-                    <div key={n.id} className="border border-white/10 p-4 rounded-sm">
+                    <article key={n.id} className="npc-card" data-testid={`npc-card-${n.id}`}>
+                      <ResourceImage assetId={n.avatar_file_id} legacyUrl={n.avatar_url} alt={`Retrato de ${n.name}`} initials={n.name?.slice(0,1)} className="npc-portrait" />
+                      <div className="npc-card-body">
                       <div className="flex justify-between items-start mb-1">
                         <div className="font-display text-lg font-semibold">{n.name}</div>
                         <span className={`text-[10px] font-mono px-2 py-0.5 border rounded-sm ${n.kind === "monster" ? "border-red-500 text-red-400" : "border-white/20 text-gray-400"}`}>
@@ -212,8 +233,14 @@ export default function CampaignDetail() {
                         </span>
                       </div>
                       <div className="text-sm text-gray-400 whitespace-pre-wrap">{n.description}</div>
-                      {c.is_master && <button onClick={() => delNpc(n.id)} className="mt-2 text-xs text-gray-500 hover:text-red-400">Excluir</button>}
-                    </div>
+                      {c.is_master && <>
+                        <ImagePicker compact label={`Foto de ${n.name}`} assetId={n.avatar_file_id}
+                          onSelect={async (file) => { await uploadResourceImage("npcs", n.id, file); await loadAll(); }}
+                          onRemove={async () => { await removeResourceImage("npcs", n.id); await loadAll(); }} />
+                        <button onClick={() => delNpc(n.id)} className="mt-2 text-xs text-gray-500 hover:text-red-400">Excluir</button>
+                      </>}
+                      </div>
+                    </article>
                   ))}
                 </div>
               </div>
@@ -222,7 +249,7 @@ export default function CampaignDetail() {
             {tab === "files" && (
               <div>
                 <button onClick={uploadFile} data-testid="upload-file-btn"
-                  className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2 mb-4">
+                  className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2 mb-4">
                   <UploadSimple size={16} /> Enviar arquivo
                 </button>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -236,7 +263,7 @@ export default function CampaignDetail() {
                             <img src={url} alt="" className="w-full h-32 object-cover" />
                           </a>
                         ) : (
-                          <a href={url} target="_blank" rel="noreferrer" className="h-32 flex items-center justify-center bg-[#0A0A0E]">
+                          <a href={url} target="_blank" rel="noreferrer" className="h-32 flex items-center justify-center bg-[#101416]">
                             <FileText size={40} className="text-gray-500" />
                           </a>
                         )}
@@ -254,9 +281,9 @@ export default function CampaignDetail() {
             {tab === "loot" && (
               c.is_master ? (
                 <div className="space-y-4">
-                  <form onSubmit={sendLoot} className="border border-white/10 p-5 rounded-sm bg-[#12121A]" data-testid="loot-form">
+                  <form onSubmit={sendLoot} className="border border-white/10 p-5 rounded-sm bg-[#191F22]" data-testid="loot-form">
                     <h3 className="font-display text-xl font-semibold mb-3 flex items-center gap-2">
-                      <Coins size={20} className="text-[#FF4500]" weight="fill" /> Distribuir Loot
+                      <Coins size={20} className="text-[#D5AB68]" weight="fill" /> Distribuir Loot
                     </h3>
 
                     <div className="mb-4">
@@ -270,7 +297,7 @@ export default function CampaignDetail() {
                             return (
                               <button type="button" key={ch.id} onClick={() => toggleLootChar(ch.id)}
                                 data-testid={`loot-target-${ch.id}`}
-                                className={`px-3 py-1.5 rounded-sm text-sm border ${active ? "border-[#FF4500] bg-[#FF4500]/10 text-white" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
+                                className={`px-3 py-1.5 rounded-sm text-sm border ${active ? "border-[#D5AB68] bg-[#D5AB68]/10 text-white" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
                                 {ch.name}
                               </button>
                             );
@@ -293,7 +320,7 @@ export default function CampaignDetail() {
                             <input type="number" value={lootForm.coins[k]}
                               onChange={(e) => setLootForm({ ...lootForm, coins: { ...lootForm.coins, [k]: parseInt(e.target.value) || 0 } })}
                               data-testid={`loot-coin-${k}`}
-                              className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" />
+                              className="w-full bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" />
                           </div>
                         ))}
                       </div>
@@ -303,7 +330,7 @@ export default function CampaignDetail() {
                       <div className="flex justify-between items-center mb-2">
                         <div className="text-xs text-gray-400 font-mono">ITENS</div>
                         <button type="button" onClick={addLootItem} data-testid="loot-add-item-btn"
-                          className="text-xs border border-white/10 hover:border-[#FF4500] px-2 py-1 rounded-sm flex items-center gap-1">
+                          className="text-xs border border-white/10 hover:border-[#D5AB68] px-2 py-1 rounded-sm flex items-center gap-1">
                           <Plus size={12} /> Adicionar item
                         </button>
                       </div>
@@ -312,9 +339,9 @@ export default function CampaignDetail() {
                           <div key={i} className="flex flex-wrap gap-2 items-center border border-white/5 p-2 rounded-sm">
                             <input value={it.name} onChange={(e) => updLootItem(i, "name", e.target.value)}
                               placeholder="Nome" data-testid={`loot-item-name-${i}`}
-                              className="flex-1 min-w-[120px] bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-sm" />
+                              className="flex-1 min-w-[120px] bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-sm" />
                             <select value={it.category} onChange={(e) => updLootItem(i, "category", e.target.value)}
-                              className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs">
+                              className="bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-xs">
                               <option value="weapon">Arma</option>
                               <option value="armor">Armadura</option>
                               <option value="consumable">Consumível</option>
@@ -322,9 +349,9 @@ export default function CampaignDetail() {
                               <option value="misc">Diverso</option>
                             </select>
                             <input type="number" value={it.qty} onChange={(e) => updLootItem(i, "qty", parseInt(e.target.value) || 1)}
-                              className="w-16 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Qtd" />
+                              className="w-16 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Qtd" />
                             <input type="number" step="0.1" value={it.weight} onChange={(e) => updLootItem(i, "weight", parseFloat(e.target.value) || 0)}
-                              className="w-20 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Peso" />
+                              className="w-20 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Peso" />
                             <button type="button" onClick={() => delLootItem(i)} className="p-1 text-gray-500 hover:text-red-400"><Trash size={14} /></button>
                           </div>
                         ))}
@@ -333,10 +360,10 @@ export default function CampaignDetail() {
 
                     <input value={lootForm.note} onChange={(e) => setLootForm({ ...lootForm, note: e.target.value })}
                       placeholder="Nota (ex: recompensa da masmorra)" data-testid="loot-note-input"
-                      className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 text-sm mb-3" />
+                      className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 text-sm mb-3" />
 
                     <button type="submit" data-testid="send-loot-btn"
-                      className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+                      className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
                       <PaperPlaneTilt size={16} weight="fill" /> Enviar para o grupo
                     </button>
                   </form>
@@ -365,7 +392,7 @@ export default function CampaignDetail() {
                                   <span className="text-[10px] text-gray-500 font-mono uppercase">Clonar para</span>
                                   <select value={target} data-testid={`clone-target-${l.id}`}
                                     onChange={(e) => setCloneTargets({ ...cloneTargets, [l.id]: e.target.value })}
-                                    className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs">
+                                    className="bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-xs">
                                     {chars.map((ch) => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
                                   </select>
                                 </div>
@@ -376,7 +403,7 @@ export default function CampaignDetail() {
                                       <button type="button" disabled={cloningKey === `${l.id}:${i}`}
                                         onClick={() => cloneLootItem(l.id, i, target)}
                                         data-testid={`clone-item-${l.id}-${i}`}
-                                        className="border border-white/10 hover:border-[#FF4500] hover:text-[#FF4500] px-2 py-1 rounded-sm flex items-center gap-1 disabled:opacity-50">
+                                        className="border border-white/10 hover:border-[#D5AB68] hover:text-[#D5AB68] px-2 py-1 rounded-sm flex items-center gap-1 disabled:opacity-50">
                                         <Copy size={12} /> Clonar para inventário
                                       </button>
                                     </div>
@@ -404,7 +431,7 @@ export default function CampaignDetail() {
                             <span>por {l.master_name}</span>
                           </div>
                           {l.note && <div className="text-gray-300 mb-1">{l.note}</div>}
-                          {totalCoins && <div className="text-xs text-[#FF4500] font-mono mb-1">Moedas: {totalCoins}</div>}
+                          {totalCoins && <div className="text-xs text-[#D5AB68] font-mono mb-1">Moedas: {totalCoins}</div>}
                           {(l.items || []).length > 0 && (
                             <div className="text-xs text-gray-300">
                               {l.items.map((it, i) => (
@@ -434,7 +461,7 @@ export default function CampaignDetail() {
                             <div className="text-xs text-gray-500 font-mono">{m.email}</div>
                           </div>
                         </div>
-                        <span className={`text-xs font-mono px-2 py-0.5 border rounded-sm ${m.role === "master" ? "border-[#FF4500] text-[#FF4500]" : "border-white/20 text-gray-400"}`}>
+                        <span className={`text-xs font-mono px-2 py-0.5 border rounded-sm ${m.role === "master" ? "border-[#D5AB68] text-[#D5AB68]" : "border-white/20 text-gray-400"}`}>
                           {m.role === "master" ? "MESTRE" : "JOGADOR"}
                         </span>
                       </div>
@@ -445,10 +472,10 @@ export default function CampaignDetail() {
                   <h3 className="font-display text-xl font-semibold mb-3">Personagens do grupo</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {chars.map((ch) => (
-                      <Link key={ch.id} to={`/app/characters/${ch.id}`} className="border border-white/10 hover:border-[#FF4500]/50 p-4 rounded-sm">
+                      <Link key={ch.id} to={`/app/characters/${ch.id}`} className="border border-white/10 hover:border-[#D5AB68]/50 p-4 rounded-sm">
                         <div className="font-display text-lg">{ch.name}</div>
                         <div className="text-xs text-gray-500 font-mono">{ch.race} {ch.class_name} • NV {ch.level}</div>
-                        <div className="text-xs font-mono mt-2 text-[#FF4500]">HP {ch.hp_current}/{ch.hp_max}</div>
+                        <div className="text-xs font-mono mt-2 text-[#D5AB68]">HP {ch.hp_current}/{ch.hp_max}</div>
                       </Link>
                     ))}
                     {chars.length === 0 && <div className="text-gray-500 text-sm">Ninguém vinculou fichas ainda.</div>}

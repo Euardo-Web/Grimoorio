@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import Layout from "@/components/Layout";
 import api, { formatApiError, API_BASE } from "@/lib/api";
@@ -11,7 +11,15 @@ const mod = (v) => Math.floor((v - 10) / 2);
 
 export default function CharacterSheet() {
   const { id } = useParams();
-  const [c, setC] = useState(null);
+  const [c, setCharacter] = useState(null);
+  const current = useRef(null);
+  const pendingSaves = useRef(Promise.resolve());
+  const pendingCount = useRef(0);
+  const setC = (value) => {
+    const next = typeof value === "function" ? value(current.current) : value;
+    current.current = next;
+    setCharacter(next);
+  };
   const [template, setTemplate] = useState(null);
   const [tab, setTab] = useState("stats");
   const [saving, setSaving] = useState(false);
@@ -31,13 +39,21 @@ export default function CharacterSheet() {
   };
   useEffect(() => { load(); }, [id]);
 
-  const save = async (patch) => {
+  const save = (patch = {}) => {
+    const snapshot = { ...current.current, ...patch };
+    setC(snapshot);
+    pendingCount.current += 1;
     setSaving(true);
-    try {
-      const { data } = await api.put(`/characters/${id}`, { ...c, ...patch });
-      setC(data);
-    } catch (e) { toast.error(formatApiError(e)); }
-    finally { setSaving(false); }
+    const task = pendingSaves.current.then(async () => {
+      const { data } = await api.put(`/characters/${id}`, snapshot);
+      if (current.current === snapshot) setC(data);
+    });
+    pendingSaves.current = task.catch((e) => { toast.error(formatApiError(e)); })
+      .finally(() => {
+        pendingCount.current -= 1;
+        if (pendingCount.current === 0) setSaving(false);
+      });
+    return pendingSaves.current;
   };
 
   const setField = (k, v) => setC({ ...c, [k]: v });
@@ -76,8 +92,8 @@ export default function CharacterSheet() {
   const exportJson = async () => {
     const { data } = await api.get(`/characters/${id}/export`);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-    a.download = `${c.name}.json`; a.click();
+    const a = document.createElement("a"); const objectUrl = URL.createObjectURL(blob); a.href = objectUrl;
+    a.download = `${c.name}.json`; a.click(); URL.revokeObjectURL(objectUrl);
   };
 
   const importJson = () => {
@@ -113,30 +129,30 @@ export default function CharacterSheet() {
     <Layout>
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="border border-white/10 bg-[#12121A] p-6 rounded-sm mb-6">
+        <div className="border border-white/10 bg-[#191F22] p-6 rounded-sm mb-6">
           <div className="flex flex-col md:flex-row gap-6">
             <button onClick={uploadAvatar} data-testid="upload-avatar-btn"
-              className="w-32 h-32 border border-dashed border-white/20 rounded-sm flex items-center justify-center overflow-hidden bg-[#0A0A0E] hover:border-[#FF4500]">
+              className="w-32 h-32 border border-dashed border-white/20 rounded-sm flex items-center justify-center overflow-hidden bg-[#101416] hover:border-[#D5AB68]">
               {c.avatar_url ? <img src={c.avatar_url} alt="" className="w-full h-full object-cover" /> :
                 <div className="text-xs text-gray-500 text-center p-2">Enviar avatar</div>}
             </button>
             <div className="flex-1">
               <input value={c.name} onChange={(e) => setField("name", e.target.value)} onBlur={() => save({})}
-                data-testid="char-name" className="bg-transparent font-display text-4xl font-bold w-full outline-none focus:text-[#FF4500]" />
+                data-testid="char-name" className="bg-transparent font-display text-4xl font-bold w-full outline-none focus:text-[#D5AB68]" />
               <div className="flex flex-wrap gap-3 mt-2">
                 <input value={c.race} onChange={(e) => setField("race", e.target.value)} onBlur={() => save({})}
-                  placeholder="Raça" className="bg-transparent border-b border-white/10 text-sm text-gray-300 outline-none focus:border-[#FF4500] w-32" data-testid="char-race" />
+                  placeholder="Raça" className="bg-transparent border-b border-white/10 text-sm text-gray-300 outline-none focus:border-[#D5AB68] w-32" data-testid="char-race" />
                 <input value={c.class_name} onChange={(e) => setField("class_name", e.target.value)} onBlur={() => save({})}
-                  placeholder="Classe" className="bg-transparent border-b border-white/10 text-sm text-gray-300 outline-none focus:border-[#FF4500] w-32" data-testid="char-class" />
+                  placeholder="Classe" className="bg-transparent border-b border-white/10 text-sm text-gray-300 outline-none focus:border-[#D5AB68] w-32" data-testid="char-class" />
                 <div className="flex items-center gap-1 text-sm">
                   <span className="text-gray-500 font-mono text-xs">NV</span>
                   <input type="number" min={1} value={c.level} onChange={(e) => setField("level", parseInt(e.target.value) || 1)} onBlur={() => save({})}
-                    className="bg-transparent border-b border-white/10 font-mono w-12 outline-none focus:border-[#FF4500]" data-testid="char-level" />
+                    className="bg-transparent border-b border-white/10 font-mono w-12 outline-none focus:border-[#D5AB68]" data-testid="char-level" />
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 mt-4">
-                <button onClick={() => rest("short")} data-testid="rest-short-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1 rounded-sm text-xs flex items-center gap-1"><Bed size={14} /> Descanso curto</button>
-                <button onClick={() => rest("long")} data-testid="rest-long-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1 rounded-sm text-xs flex items-center gap-1"><Bed size={14} weight="fill" /> Descanso longo</button>
+                <button onClick={() => rest("short")} data-testid="rest-short-btn" className="border border-white/10 hover:border-[#D5AB68] px-3 py-1 rounded-sm text-xs flex items-center gap-1"><Bed size={14} /> Descanso curto</button>
+                <button onClick={() => rest("long")} data-testid="rest-long-btn" className="border border-white/10 hover:border-[#D5AB68] px-3 py-1 rounded-sm text-xs flex items-center gap-1"><Bed size={14} weight="fill" /> Descanso longo</button>
                 <button onClick={exportJson} data-testid="export-btn" className="border border-white/10 hover:border-white/30 px-3 py-1 rounded-sm text-xs flex items-center gap-1"><DownloadSimple size={14} /> Exportar JSON</button>
                 <button onClick={importJson} data-testid="import-btn" className="border border-white/10 hover:border-white/30 px-3 py-1 rounded-sm text-xs flex items-center gap-1"><UploadSimple size={14} /> Importar</button>
                 {saving && <span className="text-xs text-gray-500 font-mono">salvando...</span>}
@@ -145,11 +161,11 @@ export default function CharacterSheet() {
             {/* Combat */}
             <div className="flex gap-4">
               <div className="border border-white/10 p-4 rounded-sm min-w-[100px] text-center">
-                <Heart size={16} className="text-[#FF4500] mx-auto mb-1" weight="fill" />
+                <Heart size={16} className="text-[#D5AB68] mx-auto mb-1" weight="fill" />
                 <div className="text-[10px] text-gray-500 font-mono mb-1">HP</div>
                 <div className="flex items-center gap-1 justify-center">
                   <input type="number" value={c.hp_current} onChange={(e) => setField("hp_current", parseInt(e.target.value) || 0)} onBlur={() => save({})}
-                    data-testid="hp-current" className="w-14 bg-transparent font-mono text-2xl font-bold text-center text-[#FF4500] outline-none" />
+                    data-testid="hp-current" className="w-14 bg-transparent font-mono text-2xl font-bold text-center text-[#D5AB68] outline-none" />
                   <span className="text-gray-500">/</span>
                   <input type="number" value={c.hp_max} onChange={(e) => setField("hp_max", parseInt(e.target.value) || 0)} onBlur={() => save({})}
                     data-testid="hp-max" className="w-14 bg-transparent font-mono text-lg text-center outline-none" />
@@ -170,7 +186,7 @@ export default function CharacterSheet() {
             <div className="flex gap-1 border-b border-white/10 mb-6 overflow-x-auto scroll-thin">
               {[["stats","Atributos"],["skills","Perícias"],["spells","Magias"],["inventory","Inventário"],["combat","Combate"],["notes","História"]].map(([k, lbl]) => (
                 <button key={k} onClick={() => setTab(k)} data-testid={`tab-${k}`}
-                  className={`px-4 py-2 text-sm ${tab === k ? "border-b-2 border-[#FF4500] text-white" : "text-gray-500 hover:text-white"}`}>
+                  className={`px-4 py-2 text-sm ${tab === k ? "border-b-2 border-[#D5AB68] text-white" : "text-gray-500 hover:text-white"}`}>
                   {lbl}
                 </button>
               ))}
@@ -185,7 +201,7 @@ export default function CharacterSheet() {
                 <div>
                   {template && (
                     <div className="text-xs text-gray-500 font-mono mb-3">
-                      Atributos do modelo: <span className="text-[#FF4500]">{template.name}</span>
+                      Atributos do modelo: <span className="text-[#D5AB68]">{template.name}</span>
                     </div>
                   )}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -193,12 +209,12 @@ export default function CharacterSheet() {
                       const v = c.attributes?.[key] ?? 10;
                       const m = mod(v);
                       return (
-                        <div key={key} className="border border-white/10 bg-[#12121A] p-4 rounded-sm text-center">
+                        <div key={key} className="border border-white/10 bg-[#191F22] p-4 rounded-sm text-center">
                           <div className="text-xs text-gray-500 font-mono mb-2 uppercase">{label || key}</div>
                           <input type="number" value={v} onChange={(e) => setAttr(key, e.target.value)} onBlur={() => save({})}
                             data-testid={`attr-${key}`}
-                            className="w-full bg-transparent font-mono text-4xl font-bold text-center outline-none focus:text-[#FF4500]" />
-                          <div className="text-lg font-mono text-[#FF4500] mt-1">{m >= 0 ? `+${m}` : m}</div>
+                            className="w-full bg-transparent font-mono text-4xl font-bold text-center outline-none focus:text-[#D5AB68]" />
+                          <div className="text-lg font-mono text-[#D5AB68] mt-1">{m >= 0 ? `+${m}` : m}</div>
                         </div>
                       );
                     })}
@@ -209,17 +225,17 @@ export default function CharacterSheet() {
 
             {tab === "skills" && (
               <div>
-                <button onClick={addSkill} data-testid="add-skill-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 mb-3"><Plus size={14} /> Adicionar perícia</button>
+                <button onClick={addSkill} data-testid="add-skill-btn" className="border border-white/10 hover:border-[#D5AB68] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 mb-3"><Plus size={14} /> Adicionar perícia</button>
                 <div className="space-y-2">
                   {(c.skills || []).map((s, i) => (
                     <div key={i} className="flex flex-col sm:flex-row gap-2 sm:items-center border border-white/10 p-2 rounded-sm">
                       <input value={s.name} onChange={(e) => updSkill(i, "name", e.target.value)} onBlur={() => save({})}
-                        className="min-w-0 flex-1 bg-transparent outline-none focus:text-[#FF4500]" placeholder="Nome" data-testid={`skill-name-${i}`} />
+                        className="min-w-0 flex-1 bg-transparent outline-none focus:text-[#D5AB68]" placeholder="Nome" data-testid={`skill-name-${i}`} />
                       <div className="flex gap-2 items-center shrink-0">
                         <input type="number" value={s.value} onChange={(e) => updSkill(i, "value", e.target.value)} onBlur={() => save({})}
-                          className="w-16 shrink-0 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Valor" data-testid={`skill-value-${i}`} />
+                          className="w-16 shrink-0 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Valor" data-testid={`skill-value-${i}`} />
                         <input type="number" value={s.bonus} onChange={(e) => updSkill(i, "bonus", e.target.value)} onBlur={() => save({})}
-                          className="w-16 shrink-0 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Bônus" />
+                          className="w-16 shrink-0 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Bônus" />
                         <button onClick={() => { delSkill(i); setTimeout(() => save({}), 100); }} data-testid={`del-skill-${i}`} className="p-1 shrink-0 text-gray-500 hover:text-red-400"><Trash size={14} /></button>
                       </div>
                     </div>
@@ -237,7 +253,7 @@ export default function CharacterSheet() {
                       <div className="flex items-center gap-1 justify-center mt-1">
                         <input type="number" value={s.current} onChange={(e) => setSlot(lvl, "current", e.target.value)} onBlur={() => save({})}
                           data-testid={`slot-current-${lvl}`}
-                          className="w-8 bg-transparent font-mono text-sm text-[#FF4500] text-center outline-none" />
+                          className="w-8 bg-transparent font-mono text-sm text-[#D5AB68] text-center outline-none" />
                         <span className="text-gray-600">/</span>
                         <input type="number" value={s.max} onChange={(e) => setSlot(lvl, "max", e.target.value)} onBlur={() => save({})}
                           data-testid={`slot-max-${lvl}`}
@@ -246,15 +262,15 @@ export default function CharacterSheet() {
                     </div>
                   ))}
                 </div>
-                <button onClick={addSpell} data-testid="add-spell-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 mb-3"><Sparkle size={14} /> Adicionar magia</button>
+                <button onClick={addSpell} data-testid="add-spell-btn" className="border border-white/10 hover:border-[#D5AB68] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 mb-3"><Sparkle size={14} /> Adicionar magia</button>
                 <div className="space-y-2">
                   {(c.spells || []).map((sp, i) => (
                     <div key={i} className="border border-white/10 p-3 rounded-sm">
                       <div className="flex gap-2 items-center mb-2">
                         <input value={sp.name} onChange={(e) => updSpell(i, "name", e.target.value)} onBlur={() => save({})}
-                          className="flex-1 bg-transparent font-medium outline-none focus:text-[#FF4500]" data-testid={`spell-name-${i}`} />
+                          className="flex-1 bg-transparent font-medium outline-none focus:text-[#D5AB68]" data-testid={`spell-name-${i}`} />
                         <select value={sp.level} onChange={(e) => updSpell(i, "level", parseInt(e.target.value))} onBlur={() => save({})}
-                          className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs font-mono">
+                          className="bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-xs font-mono">
                           {[0,1,2,3,4,5,6,7,8,9].map((l) => <option key={l} value={l}>{l === 0 ? "Truque" : `Nv ${l}`}</option>)}
                         </select>
                         <label className="flex items-center gap-1 text-xs">
@@ -266,7 +282,7 @@ export default function CharacterSheet() {
                       </div>
                       <textarea value={sp.description || ""} onChange={(e) => updSpell(i, "description", e.target.value)} onBlur={() => save({})}
                         placeholder="Descrição, componentes, alcance..."
-                        className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-sm" rows={2} />
+                        className="w-full bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-sm" rows={2} />
                     </div>
                   ))}
                 </div>
@@ -276,8 +292,8 @@ export default function CharacterSheet() {
             {tab === "inventory" && (
               <div>
                 <div className="flex justify-between mb-3">
-                  <button onClick={addItem} data-testid="add-item-btn" className="border border-white/10 hover:border-[#FF4500] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1"><Plus size={14} /> Adicionar item</button>
-                  <div className="text-sm font-mono text-gray-400">Peso total: <span className="text-[#FF4500]">{totalWeight.toFixed(1)}</span></div>
+                  <button onClick={addItem} data-testid="add-item-btn" className="border border-white/10 hover:border-[#D5AB68] px-3 py-1.5 rounded-sm text-sm flex items-center gap-1"><Plus size={14} /> Adicionar item</button>
+                  <div className="text-sm font-mono text-gray-400">Peso total: <span className="text-[#D5AB68]">{totalWeight.toFixed(1)}</span></div>
                 </div>
                 <div className="grid grid-cols-4 md:grid-cols-5 gap-2 mb-4">
                   {["gp","sp","cp","pp","ep"].map((k) => (
@@ -294,9 +310,9 @@ export default function CharacterSheet() {
                   {(c.inventory || []).map((it, i) => (
                     <div key={i} className="flex flex-wrap gap-2 items-center border border-white/10 p-2 rounded-sm">
                       <input value={it.name} onChange={(e) => updItem(i, "name", e.target.value)} onBlur={() => save({})}
-                        className="flex-1 min-w-[120px] bg-transparent outline-none focus:text-[#FF4500]" data-testid={`item-name-${i}`} />
+                        className="flex-1 min-w-[120px] bg-transparent outline-none focus:text-[#D5AB68]" data-testid={`item-name-${i}`} />
                       <select value={it.category} onChange={(e) => { updItem(i, "category", e.target.value); setTimeout(() => save({}), 100); }}
-                        className="bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 text-xs">
+                        className="bg-[#101416] border border-white/10 rounded-sm px-2 py-1 text-xs">
                         <option value="weapon">Arma</option>
                         <option value="armor">Armadura</option>
                         <option value="consumable">Consumível</option>
@@ -304,9 +320,9 @@ export default function CharacterSheet() {
                         <option value="misc">Diverso</option>
                       </select>
                       <input type="number" value={it.qty} onChange={(e) => updItem(i, "qty", parseInt(e.target.value) || 1)} onBlur={() => save({})}
-                        className="w-14 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Qtd" />
+                        className="w-14 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Qtd" />
                       <input type="number" step="0.1" value={it.weight} onChange={(e) => updItem(i, "weight", parseFloat(e.target.value) || 0)} onBlur={() => save({})}
-                        className="w-16 bg-[#0A0A0E] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Peso" />
+                        className="w-16 bg-[#101416] border border-white/10 rounded-sm px-2 py-1 font-mono text-center" placeholder="Peso" />
                       <label className="flex items-center gap-1 text-xs">
                         <input type="checkbox" checked={it.equipped} onChange={(e) => { updItem(i, "equipped", e.target.checked); setTimeout(() => save({}), 100); }} />
                         Equipado
@@ -325,19 +341,19 @@ export default function CharacterSheet() {
                   <div className="border border-white/10 p-3 rounded-sm">
                     <div className="text-xs text-gray-500 font-mono mb-1">HP TEMPORÁRIO</div>
                     <input type="number" value={c.hp_temp} onChange={(e) => setField("hp_temp", parseInt(e.target.value) || 0)} onBlur={() => save({})}
-                      data-testid="hp-temp" className="w-full bg-transparent font-mono text-3xl font-bold outline-none focus:text-[#FF4500]" />
+                      data-testid="hp-temp" className="w-full bg-transparent font-mono text-3xl font-bold outline-none focus:text-[#D5AB68]" />
                   </div>
                   <div className="border border-white/10 p-3 rounded-sm">
                     <div className="text-xs text-gray-500 font-mono mb-1">INICIATIVA</div>
                     <input type="number" value={c.initiative} onChange={(e) => setField("initiative", parseInt(e.target.value) || 0)} onBlur={() => save({})}
-                      data-testid="init-input" className="w-full bg-transparent font-mono text-3xl font-bold outline-none focus:text-[#FF4500]" />
+                      data-testid="init-input" className="w-full bg-transparent font-mono text-3xl font-bold outline-none focus:text-[#D5AB68]" />
                   </div>
                 </div>
                 <div className="border border-white/10 p-4 rounded-sm">
                   <div className="text-xs text-gray-500 font-mono mb-2">CONDIÇÕES</div>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {(c.conditions || []).map((cd, i) => (
-                      <span key={i} className="text-xs bg-[#FF4500]/10 border border-[#FF4500]/40 px-2 py-1 rounded-sm flex items-center gap-1">
+                      <span key={i} className="text-xs bg-[#D5AB68]/10 border border-[#D5AB68]/40 px-2 py-1 rounded-sm flex items-center gap-1">
                         {cd}
                         <button onClick={() => { setField("conditions", c.conditions.filter((_, x) => x !== i)); setTimeout(() => save({}), 100); }}>×</button>
                       </span>
@@ -350,17 +366,34 @@ export default function CharacterSheet() {
                         e.target.value = ""; setTimeout(() => save({}), 100);
                       }
                     }}
-                    className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 text-sm" />
+                    className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 text-sm" />
                 </div>
               </div>
             )}
+
+            {(template?.sections || []).map((section, sectionIndex) => (
+              <section className="custom-section" key={section.key || sectionIndex}>
+                <h3 className="font-display text-2xl">{section.label || section.title || "Seção personalizada"}</h3>
+                <div className="field-grid">
+                  {(section.fields || []).map((field) => <label key={field.key} className="text-sm text-gray-300">
+                    {field.type !== "checkbox" && field.label}
+                    {field.type === "textarea" ? <textarea rows={3} value={c.custom_fields?.[field.key] ?? ""}
+                      onChange={(e) => setField("custom_fields", { ...current.current.custom_fields, [field.key]: e.target.value })} onBlur={() => save()} />
+                      : field.type === "checkbox" ? <span><input type="checkbox" checked={!!c.custom_fields?.[field.key]}
+                        onChange={(e) => save({ custom_fields: { ...current.current.custom_fields, [field.key]: e.target.checked } })} />{field.label}</span>
+                      : <input type={field.type === "number" ? "number" : "text"} value={c.custom_fields?.[field.key] ?? field.default ?? ""}
+                        onChange={(e) => setField("custom_fields", { ...current.current.custom_fields, [field.key]: field.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value })} onBlur={() => save()} />}
+                  </label>)}
+                </div>
+              </section>
+            ))}
 
             {tab === "notes" && (
               <div>
                 <label className="block text-xs text-gray-500 font-mono mb-2">HISTÓRIA / BIOGRAFIA / PERSONALIDADE</label>
                 <textarea value={c.background_text} onChange={(e) => setField("background_text", e.target.value)} onBlur={() => save({})}
                   data-testid="bg-textarea"
-                  rows={12} className="w-full bg-[#12121A] border border-white/10 rounded-sm p-4 text-gray-300 focus:outline-none focus:border-[#FF4500]" />
+                  rows={12} className="w-full bg-[#191F22] border border-white/10 rounded-sm p-4 text-gray-300 focus:outline-none focus:border-[#D5AB68]" />
               </div>
             )}
           </div>

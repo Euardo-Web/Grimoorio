@@ -90,3 +90,9 @@ android-sdk/frontend/node_modules/.cache/default-development/0.pack
 credentials.json
 *.key
 .credentials
+
+# Local validation environments
+.venv/
+.pytest_cache/
+playwright-report/
+artifacts/

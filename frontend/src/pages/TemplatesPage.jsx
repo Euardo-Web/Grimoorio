@@ -1,3 +1,5 @@
+import { ResourceImage, ImagePicker, uploadResourceImage } from "@/components/ResourceImage";
+import { TEMPLATE_PRESETS } from "@/lib/templatePresets";
 import { useCallback, useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
@@ -10,6 +12,9 @@ export default function TemplatesPage() {
   const { user } = useAuth();
   const [scope, setScope] = useState("mine");
   const [items, setItems] = useState([]);
+  const [installingPreset, setInstallingPreset] = useState(false);
+  const [cover, setCover] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -31,10 +36,30 @@ export default function TemplatesPage() {
   }, [scope, sort, debouncedSearch]);
   useEffect(() => { load(); }, [load]);
 
-  const create = async (e) => {
-    e.preventDefault();
-    try { await api.post("/templates", form); toast.success("Modelo criado"); setCreating(false); setForm({ name: "", system: "custom", description: "", is_public: false }); load(); }
-    catch (e) { toast.error(formatApiError(e)); }
+  const create = async (event) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post("/templates", form);
+      if (cover) {
+        try { await uploadResourceImage("templates", data.id, cover); }
+        catch (error) { toast.error("Modelo criado, mas a capa não foi enviada: " + formatApiError(error)); }
+      }
+      toast.success("Modelo criado"); setCreating(false); setCover(null);
+      setForm({ name: "", system: "custom", description: "", is_public: false }); await load();
+    } catch (error) { toast.error(formatApiError(error)); }
+    finally { setSaving(false); }
+  };
+  const createPreset = async (preset) => {
+    if (installingPreset) return;
+    setInstallingPreset(true);
+    try {
+      await api.post("/templates", { ...preset, is_public: false });
+      toast.success("Modelo criado. Abra-o para personalizar.");
+      await load();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setInstallingPreset(false); }
   };
   const install = async (id) => {
     try { await api.post(`/templates/${id}/install`); toast.success("Adicionado aos seus modelos"); }
@@ -62,7 +87,7 @@ export default function TemplatesPage() {
           </div>
           {user?.role === "master" && (
             <button onClick={() => setCreating(!creating)} data-testid="create-template-btn"
-              className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+              className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
               <Plus size={16} weight="bold" /> Novo modelo
             </button>
           )}
@@ -71,7 +96,7 @@ export default function TemplatesPage() {
         <div className="flex gap-1 border-b border-white/10 mb-6">
           {[["mine","Meus modelos", Books],["public","Biblioteca pública", Globe]].map(([k, lbl, Icon]) => (
             <button key={k} onClick={() => setScope(k)} data-testid={`scope-${k}`}
-              className={`px-4 py-2 text-sm flex items-center gap-2 ${scope === k ? "border-b-2 border-[#FF4500] text-white" : "text-gray-500 hover:text-white"}`}>
+              className={`px-4 py-2 text-sm flex items-center gap-2 ${scope === k ? "border-b-2 border-[#D5AB68] text-white" : "text-gray-500 hover:text-white"}`}>
               <Icon size={14} /> {lbl}
             </button>
           ))}
@@ -82,11 +107,11 @@ export default function TemplatesPage() {
             <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
             <input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nome, sistema ou descrição..." data-testid="template-search-input"
-              className="w-full bg-[#0A0A0E] border border-white/10 focus:border-[#FF4500] outline-none rounded-sm pl-9 pr-3 py-2 text-sm" />
+              className="w-full bg-[#101416] border border-white/10 focus:border-[#D5AB68] outline-none rounded-sm pl-9 pr-3 py-2 text-sm" />
           </div>
           {scope === "public" && (
             <select value={sort} onChange={(e) => setSort(e.target.value)} data-testid="template-sort-select"
-              className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 text-sm">
+              className="bg-[#101416] border border-white/10 rounded-sm px-3 py-2 text-sm">
               <option value="likes">Mais populares</option>
               <option value="recent">Mais recentes</option>
             </select>
@@ -94,15 +119,26 @@ export default function TemplatesPage() {
         </div>
 
 
+        {scope === "mine" && user?.role === "master" && !debouncedSearch && (
+          <section aria-label="Modelos iniciais">
+            <div className="journal-label">Um ponto de partida para sua próxima história</div>
+            <div className="preset-grid">{TEMPLATE_PRESETS.map((preset, index) =>
+              <button key={preset.system} className="preset-card" disabled={installingPreset} onClick={() => createPreset(preset)}>
+                <span className="feature-number">0{index + 1} / {preset.system.toUpperCase()}</span>
+                <strong>{preset.name}</strong><span className="text-sm text-gray-400">{preset.description}</span>
+                <span className="block text-sm mt-4 text-[#D5AB68]">{installingPreset ? "Criando…" : "Usar este modelo →"}</span>
+              </button>)}</div>
+          </section>
+        )}
         {creating && (
-          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#12121A] mb-6">
+          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#191F22] mb-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="Nome do modelo" data-testid="template-name-input"
-                className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                className="bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
               <select value={form.system} onChange={(e) => setForm({ ...form, system: e.target.value })}
                 data-testid="template-system-select"
-                className="bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                className="bg-[#101416] border border-white/10 rounded-sm px-3 py-2">
                 <option value="dnd5e">D&D 5ª Edição</option>
                 <option value="tormenta">Tormenta20</option>
                 <option value="custom">Personalizado</option>
@@ -110,13 +146,14 @@ export default function TemplatesPage() {
             </div>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Descreva quando usar este modelo..." rows={2}
-              className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 mb-4" />
+              className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 mb-4" />
+            <ImagePicker label="Capa do modelo" file={cover} onSelect={setCover} onRemove={() => setCover(null)} disabled={saving} />
             <label className="flex items-center gap-2 mb-4 text-sm">
               <input type="checkbox" checked={form.is_public} onChange={(e) => setForm({ ...form, is_public: e.target.checked })}
                 data-testid="template-public-check" />
               Publicar na biblioteca pública para outros mestres
             </label>
-            <button className="bg-[#FF4500] text-black font-medium px-4 py-2 rounded-sm text-sm" data-testid="template-submit-btn">Criar modelo</button>
+            <button className="bg-[#D5AB68] text-black font-medium px-4 py-2 rounded-sm text-sm" data-testid="template-submit-btn" disabled={saving}>Criar modelo</button>
           </form>
         )}
 
@@ -127,12 +164,17 @@ export default function TemplatesPage() {
               : scope === "mine" ? "Você ainda não criou modelos." : "A biblioteca pública está vazia. Seja o primeiro a publicar!"}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="model-grid">
             {items.map((t) => (
-              <div key={t.id} className="border border-white/10 hover:border-[#FF4500]/50 bg-[#12121A] p-5 rounded-sm">
+              <article key={t.id} className="model-card" data-testid={`template-card-${t.id}`}>
+                <Link to={`/app/templates/${t.id}`} className="model-cover-link" aria-label={`Abrir modelo ${t.name}`}>
+                  <ResourceImage assetId={t.cover_file_id} alt={`Capa de ${t.name}`} initials={t.name?.slice(0,1)} className="model-cover" />
+                  <span className="model-cover-system">{t.system}</span>
+                </Link>
+                <div className="model-card-body">
                 <div className="flex justify-between items-start mb-2">
-                  <Link to={scope === "mine" ? `/app/templates/${t.id}` : "#"} className="font-display text-xl font-bold hover:text-[#FF4500]">{t.name}</Link>
-                  {t.is_public && <span className="text-[10px] font-mono px-2 py-0.5 border border-[#FF4500] text-[#FF4500] rounded-sm">PÚBLICO</span>}
+                  <Link to={`/app/templates/${t.id}`} className="font-display text-xl font-bold hover:text-[#D5AB68]">{t.name}</Link>
+                  {t.is_public && <span className="text-[10px] font-mono px-2 py-0.5 border border-[#D5AB68] text-[#D5AB68] rounded-sm">PÚBLICO</span>}
                 </div>
                 <div className="text-xs text-gray-500 font-mono uppercase mb-2">{t.system}</div>
                 <div className="text-sm text-gray-400 line-clamp-2 mb-3">{t.description || "Sem descrição"}</div>
@@ -144,11 +186,11 @@ export default function TemplatesPage() {
                     <>
                       <button onClick={() => toggleLike(t.id)} data-testid={`like-${t.id}`}
                         title={t.liked_by_me ? "Remover like" : "Dar like"}
-                        className={`px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 border ${t.liked_by_me ? "border-[#FF4500] bg-[#FF4500]/10 text-[#FF4500]" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
+                        className={`px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 border ${t.liked_by_me ? "border-[#D5AB68] bg-[#D5AB68]/10 text-[#D5AB68]" : "border-white/10 text-gray-400 hover:border-white/30"}`}>
                         <Heart size={14} weight={t.liked_by_me ? "fill" : "regular"} /> {t.likes || 0}
                       </button>
                       <button onClick={() => install(t.id)} data-testid={`install-${t.id}`}
-                        className="flex-1 border border-[#FF4500] text-[#FF4500] hover:bg-[#FF4500]/10 px-3 py-1.5 rounded-sm text-sm flex items-center justify-center gap-1">
+                        className="flex-1 border border-[#D5AB68] text-[#D5AB68] hover:bg-[#D5AB68]/10 px-3 py-1.5 rounded-sm text-sm flex items-center justify-center gap-1">
                         <DownloadSimple size={14} /> Instalar
                       </button>
                     </>
@@ -159,7 +201,8 @@ export default function TemplatesPage() {
                     </>
                   )}
                 </div>
-              </div>
+                </div>
+              </article>
             ))}
           </div>
         )}

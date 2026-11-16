@@ -53,25 +53,25 @@ export default function CharactersPage() {
             <h1 className="font-display text-4xl md:text-5xl font-bold">Sua Guilda</h1>
           </div>
           <button onClick={() => setCreating(!creating)} data-testid="create-char-btn"
-            className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+            className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
             <Plus size={16} weight="bold" /> Novo Personagem
           </button>
         </div>
 
         {creating && (
-          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#12121A] mb-6" data-testid="char-create-form">
+          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#191F22] mb-6" data-testid="char-create-form">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-gray-400 font-mono mb-1">NOME</label>
                 <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                   data-testid="char-name-input"
-                  className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                  className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
               </div>
               <div>
                 <label className="block text-xs text-gray-400 font-mono mb-1">CAMPANHA (opcional)</label>
                 <select value={form.campaign_id} onChange={(e) => setForm({ ...form, campaign_id: e.target.value })}
                   data-testid="char-campaign-select"
-                  className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                  className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2">
                   <option value="">— nenhuma —</option>
                   {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -80,23 +80,23 @@ export default function CharactersPage() {
                 <label className="block text-xs text-gray-400 font-mono mb-1">CLASSE</label>
                 <input value={form.class_name} onChange={(e) => setForm({ ...form, class_name: e.target.value })}
                   data-testid="char-class-input"
-                  className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                  className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
               </div>
               <div>
                 <label className="block text-xs text-gray-400 font-mono mb-1">RAÇA</label>
                 <input value={form.race} onChange={(e) => setForm({ ...form, race: e.target.value })}
                   data-testid="char-race-input"
-                  className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2" />
+                  className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2" />
               </div>
               <div>
                 <label className="block text-xs text-gray-400 font-mono mb-1">NÍVEL</label>
                 <input type="number" min={1} value={form.level} onChange={(e) => setForm({ ...form, level: parseInt(e.target.value) || 1 })}
                   data-testid="char-level-input"
-                  className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 font-mono" />
+                  className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 font-mono" />
               </div>
             </div>
             <button type="submit" data-testid="char-create-submit"
-              className="mt-4 bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm">Criar</button>
+              className="mt-4 bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm">Criar</button>
           </form>
         )}
 
@@ -108,9 +108,9 @@ export default function CharactersPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {chars.map((c) => (
               <Link key={c.id} to={`/app/characters/${c.id}`} data-testid={`char-${c.id}`}
-                className="group border border-white/10 hover:border-[#FF4500]/60 bg-[#12121A] p-5 rounded-sm">
+                className="group border border-white/10 hover:border-[#D5AB68]/60 bg-[#191F22] p-5 rounded-sm">
                 <div className="flex justify-between items-start mb-3">
-                  <div className="font-display text-xl font-bold group-hover:text-[#FF4500]">{c.name}</div>
+                  <div className="font-display text-xl font-bold group-hover:text-[#D5AB68]">{c.name}</div>
                   <div className="flex gap-1">
                     <button onClick={(e) => duplicate(c.id, e)} data-testid={`dup-${c.id}`}
                       className="p-1.5 text-gray-500 hover:text-white"><Copy size={14} /></button>
@@ -122,7 +122,7 @@ export default function CharactersPage() {
                   {c.race || "—"} {c.class_name || ""} • NV {c.level}
                 </div>
                 <div className="flex gap-4 text-xs font-mono">
-                  <div><span className="text-gray-500">HP</span> <span className="text-[#FF4500]">{c.hp_current}/{c.hp_max}</span></div>
+                  <div><span className="text-gray-500">HP</span> <span className="text-[#D5AB68]">{c.hp_current}/{c.hp_max}</span></div>
                   <div><span className="text-gray-500">CA</span> <span className="text-white">{c.armor_class}</span></div>
                 </div>
               </Link>

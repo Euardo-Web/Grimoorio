@@ -1,12 +1,26 @@
 services:
-  - type: static_site
+  - type: web
+    runtime: static
     name: grimoorio-frontend
     rootDir: frontend
-    buildCommand: yarn install && yarn build
-    publishDirectory: build
-    buildFilter:
-      paths:
-        - frontend/**
-    env:
+    buildCommand: npm ci && npm run build
+    staticPublishPath: build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
       - key: REACT_APP_BACKEND_URL
         value: https://grimoorio-backend.onrender.com
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

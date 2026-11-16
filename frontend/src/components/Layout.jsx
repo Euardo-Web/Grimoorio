@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { House, Users, UserCircle, Books, SignOut, List, X, Bell, Heart } from "@phosphor-icons/react";
+import { House, Users, UserCircle, Books, SignOut, List, X, Bell } from "@phosphor-icons/react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 
@@ -39,16 +39,16 @@ export default function Layout({ children, right }) {
   };
 
   return (
-    <div className="min-h-screen flex bg-[#0A0A0E] relative">
+    <div className="min-h-screen flex bg-[#101416] relative">
       {/* Sidebar */}
       <aside
-        className={`${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:sticky top-0 left-0 h-screen z-40 w-60 bg-[#0A0A0E] border-r border-white/5 flex flex-col`}
+        className={`${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:sticky top-0 left-0 h-screen z-40 w-60 bg-[#101416] border-r border-white/5 flex flex-col`}
       >
         <div className="px-5 py-6 border-b border-white/5 flex items-center justify-between">
           <Link to="/app" className="font-display text-2xl font-bold tracking-tight text-white" data-testid="brand-link">
-            <span className="text-[#FF4500]">🖋</span> Grimoorio
+            <span className="text-[#D5AB68]">🖋</span> Grimoorio
           </Link>
-          <button className="md:hidden text-gray-400" onClick={() => setOpen(false)} data-testid="close-menu-btn">
+          <button className="md:hidden text-gray-400" onClick={() => setOpen(false)} data-testid="close-menu-btn" aria-label="Fechar menu">
             <X size={20} />
           </button>
         </div>
@@ -60,9 +60,10 @@ export default function Layout({ children, right }) {
                 key={to}
                 to={to}
                 data-testid={testid}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium ${
-                  active ? "bg-[#FF4500]/10 text-white border-l-2 border-[#FF4500]" : "text-gray-400 hover:text-white hover:bg-white/5"
+                  active ? "bg-[#D5AB68]/10 text-white border-l-2 border-[#D5AB68]" : "text-gray-400 hover:text-white hover:bg-white/5"
                 }`}
               >
                 <Icon size={18} weight={active ? "fill" : "regular"} />
@@ -71,22 +72,10 @@ export default function Layout({ children, right }) {
             );
           })}
         </nav>
-        <div className="px-2 pb-2">
-          <a
-            href="https://apoia.se/grimoorio"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="nav-support"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium text-[#FF4500] hover:bg-[#FF4500]/10 transition-colors"
-          >
-            <Heart size={18} weight="fill" />
-            Apoie o projeto
-          </a>
-        </div>
         <div className="p-4 border-t border-white/5">
           <div className="text-xs text-gray-500 mb-2 font-mono">{user?.email}</div>
           <div className="text-sm text-gray-300 mb-3 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#FF4500]"></span>
+            <span className="w-2 h-2 rounded-full bg-[#D5AB68]"></span>
             {user?.name} <span className="text-xs text-gray-500">({user?.role === "master" ? "Mestre" : "Jogador"})</span>
           </div>
           <button
@@ -105,23 +94,23 @@ export default function Layout({ children, right }) {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-20 glass border-b border-white/5">
           <div className="flex items-center justify-between px-4 md:px-8 py-3">
-            <button className="md:hidden text-gray-400" onClick={() => setOpen(true)} data-testid="open-menu-btn">
+            <button className="md:hidden text-gray-400" onClick={() => setOpen(true)} data-testid="open-menu-btn" aria-label="Abrir menu" aria-expanded={open}>
               <List size={22} />
             </button>
-            <div className="flex-1" />
+            <div className="flex-1"><div className="journal-label">{NAV.find((item) => location.pathname === item.to || (item.to !== "/app" && location.pathname.startsWith(item.to)))?.label || "Seu grimório"}</div></div>
             <div className="relative">
               <button
                 onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs && unread > 0) markRead(); }}
-                data-testid="notifications-btn"
+                data-testid="notifications-btn" aria-label="Notificações" aria-expanded={showNotifs}
                 className="relative p-2 text-gray-400 hover:text-white"
               >
                 <Bell size={20} weight={unread > 0 ? "fill" : "regular"} />
                 {unread > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#FF4500]" />
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#D5AB68]" />
                 )}
               </button>
               {showNotifs && (
-                <div className="absolute right-0 top-full mt-2 w-80 glass rounded-sm shadow-2xl max-h-96 overflow-y-auto scroll-thin" data-testid="notifications-panel">
+                <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] glass rounded-sm shadow-2xl max-h-96 overflow-y-auto scroll-thin" data-testid="notifications-panel">
                   {notifs.length === 0 ? (
                     <div className="p-4 text-sm text-gray-500">Sem notificações</div>
                   ) : notifs.map((n) => (

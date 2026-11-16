@@ -19,7 +19,15 @@ from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depend
 from fastapi.responses import Response as FastResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pymongo.errors import DuplicateKeyError
+from pydantic import BaseModel, Field, EmailStr, field_validator, ValidationError
+from fastapi.responses import RedirectResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
+from urllib.parse import urlencode
+import hashlib
+import base64
+import time
+from collections import defaultdict, deque
 
 # --------- Setup ---------
 mongo_url = os.environ["MONGO_URL"]
@@ -33,6 +41,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rpg")
 
 JWT_ALGO = "HS256"
+PRODUCTION = os.environ.get("APP_ENV", "production") == "production"
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true" if PRODUCTION else "false").lower() == "true"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none" if COOKIE_SECURE else "lax")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://grimoorio.com.br").rstrip("/")
+ALLOWED_ORIGINS = [x.strip().rstrip("/") for x in os.environ.get(
+    "CORS_ORIGINS", FRONTEND_URL + ",https://www.grimoorio.com.br,https://grimoorio-frontend.onrender.com"
+).split(",") if x.strip()]
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
+MAX_JSON_BYTES = 2 * 1024 * 1024
+
 def jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
@@ -73,6 +94,55 @@ def get_object(path: str):
         raise
     return obj["Body"].read(), obj.get("ContentType", "application/octet-stream")
 
+# --------- Request safeguards ---------
+@app.middleware("http")
+async def request_safeguards(request: Request, call_next):
+    mutating = request.method in ("POST", "PUT", "PATCH", "DELETE")
+    origin = request.headers.get("origin")
+    if mutating and origin and origin.rstrip("/") not in ALLOWED_ORIGINS:
+        return JSONResponse({"detail": "Origem não autorizada"}, status_code=403)
+    # Cookie-authenticated browser mutations require a trusted Origin.
+    if mutating and request.cookies.get("access_token") and not origin:
+        return JSONResponse({"detail": "Origem obrigatória"}, status_code=403)
+    if mutating:
+        try:
+            length = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            return JSONResponse({"detail": "Tamanho inválido"}, status_code=400)
+        cap = MAX_UPLOAD_BYTES + 65536 if request.url.path == "/api/files/upload" or request.url.path.startswith("/api/images/") else MAX_JSON_BYTES
+        if length > cap:
+            return JSONResponse({"detail": "Requisição muito grande"}, status_code=413)
+        # Enforce a bound even for chunked bodies before downstream multipart parsing.
+        buffered = bytearray()
+        async for chunk in request.stream():
+            buffered.extend(chunk)
+            if len(buffered) > cap:
+                return JSONResponse({"detail": "Requisição muito grande"}, status_code=413)
+        request._body = bytes(buffered)
+    limited_paths = {"/api/auth/login": 20, "/api/auth/register": 10,
+                     "/api/auth/google/start": 30, "/api/rolls": 120,
+                     "/api/files/upload": 20, "/api/images": 20}
+    limit_path = "/api/images" if request.url.path.startswith("/api/images/") else request.url.path
+    if limit_path in limited_paths and (mutating or request.url.path.endswith("/start")):
+        host = request.client.host if request.client else "unknown"
+        bucket = int(time.time()) // 60
+        key = hashlib.sha256(f"{host}:{limit_path}:{bucket}".encode()).hexdigest()
+        from pymongo import ReturnDocument
+        counter = await db.rate_limits.find_one_and_update(
+            {"_id": key}, {"$inc": {"count": 1}, "$setOnInsert": {
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=2)}},
+            upsert=True, return_document=ReturnDocument.AFTER)
+        if counter["count"] > limited_paths[limit_path]:
+            return JSONResponse({"detail": "Muitas tentativas. Aguarde um minuto."},
+                                status_code=429, headers={"Retry-After": "60"})
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    if request.url.path.startswith("/api/auth"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # --------- Password / Token helpers ---------
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -84,19 +154,19 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 def create_access_token(uid: str, email: str) -> str:
-    payload = {"sub": uid, "email": email, "type": "access",
+    payload = {"sub": uid, "email": email, "type": "access", "jti": new_id(),
                "exp": datetime.now(timezone.utc) + timedelta(hours=6)}
     return jwt.encode(payload, jwt_secret(), algorithm=JWT_ALGO)
 
 def create_refresh_token(uid: str) -> str:
     payload = {"sub": uid, "type": "refresh",
-               "exp": datetime.now(timezone.utc) + timedelta(days=7)}
+               "jti": new_id(), "exp": datetime.now(timezone.utc) + timedelta(days=7)}
     return jwt.encode(payload, jwt_secret(), algorithm=JWT_ALGO)
 
 def set_auth_cookies(resp: Response, access: str, refresh: str):
-    resp.set_cookie("access_token", access, httponly=True, secure=True, samesite="none",
+    resp.set_cookie("access_token", access, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE,
                     max_age=6*3600, path="/")
-    resp.set_cookie("refresh_token", refresh, httponly=True, secure=True, samesite="none",
+    resp.set_cookie("refresh_token", refresh, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE,
                     max_age=7*24*3600, path="/")
 
 # --------- Auth dependency ---------
@@ -112,6 +182,8 @@ async def get_current_user(request: Request) -> dict:
         payload = jwt.decode(token, jwt_secret(), algorithms=[JWT_ALGO])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
+        if await db.revoked_tokens.find_one({"digest": hashlib.sha256(token.encode()).hexdigest()}):
+            raise HTTPException(status_code=401, detail="Session revoked")
         user = await db.users.find_one({"id": payload["sub"]})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -142,8 +214,23 @@ def strip_id(doc: Optional[dict]) -> Optional[dict]:
 # --------- Pydantic Models ---------
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    password: str = Field(min_length=10, max_length=72)
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("password")
+    @classmethod
+    def password_bytes(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Senha deve ter no máximo 72 bytes")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():
+            raise ValueError("Informe seu nome")
+        return value.strip()
+
     role: str = "player"  # player | master
 
 class LoginIn(BaseModel):
@@ -151,7 +238,7 @@ class LoginIn(BaseModel):
     password: str
 
 class CampaignIn(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     system: str = "dnd5e"  # dnd5e | tormenta | custom
     description: str = ""
     template_id: Optional[str] = None
@@ -172,13 +259,13 @@ class CharacterIn(BaseModel):
     avatar_url: Optional[str] = None
     class_name: str = ""
     race: str = ""
-    level: int = 1
+    level: int = Field(default=1, ge=1, le=1000)
     background_text: str = ""
     attributes: Dict[str, int] = Field(default_factory=dict)
     skills: List[Dict[str, Any]] = Field(default_factory=list)
     hp_current: int = 10
-    hp_max: int = 10
-    hp_temp: int = 0
+    hp_max: int = Field(default=10, ge=0, le=1000000)
+    hp_temp: int = Field(default=0, ge=0, le=1000000)
     armor_class: int = 10
     initiative: int = 0
     conditions: List[str] = Field(default_factory=list)
@@ -186,12 +273,13 @@ class CharacterIn(BaseModel):
     spell_slots: Dict[str, Dict[str, int]] = Field(default_factory=dict)  # {"1": {"max": 4, "current": 4}}
     inventory: List[Dict[str, Any]] = Field(default_factory=list)
     coins: Dict[str, int] = Field(default_factory=lambda: {"gp": 0, "sp": 0, "cp": 0, "pp": 0, "ep": 0})
-    notes: str = ""
+    notes: str = Field(default="", max_length=50000)
+    custom_fields: Dict[str, Any] = Field(default_factory=dict)
 
 class DiceRollIn(BaseModel):
     campaign_id: Optional[str] = None
     character_id: Optional[str] = None
-    expression: str  # e.g. "1d20+5"
+    expression: str = Field(min_length=1, max_length=200)  # bounded dice expression
     label: str = ""
 
 class SessionNoteIn(BaseModel):
@@ -208,14 +296,50 @@ class NPCIn(BaseModel):
     stats: Dict[str, Any] = Field(default_factory=dict)
     avatar_url: Optional[str] = None
 
+def validate_schema_entries(value):
+    if value is None:
+        return value
+    if len(value) > 100:
+        raise ValueError("Máximo de 100 campos")
+    keys = set()
+    for entry in value:
+        key = entry.get("key", "")
+        if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]{0,49}", key) or key in keys:
+            raise ValueError("Cada campo deve ter uma chave única: letras, números e sublinhado")
+        if not str(entry.get("label", "")).strip() or len(str(entry["label"])) > 120:
+            raise ValueError("Informe um rótulo de até 120 caracteres")
+        keys.add(key)
+    return value
+
+def validate_sections(value):
+    if value is None:
+        return value
+    if len(value) > 20:
+        raise ValueError("Máximo de 20 seções")
+    keys = set()
+    for section in value:
+        if not str(section.get("label") or section.get("title") or "").strip():
+            raise ValueError("Informe o nome da seção")
+        fields = validate_schema_entries(section.get("fields", []))
+        for field in fields:
+            if field["key"] in keys:
+                raise ValueError("Campos de seções diferentes também precisam de chaves únicas")
+            if field.get("type", "text") not in ("text", "number", "textarea", "checkbox"):
+                raise ValueError("Tipo de campo inválido")
+            keys.add(field["key"])
+    return value
+
 class TemplateIn(BaseModel):
-    name: str
-    system: str
+    name: str = Field(min_length=1, max_length=120)
+    system: str = Field(min_length=1, max_length=60)
     description: str = ""
     is_public: bool = False
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list)  # [{key, label}]
     skills_schema: List[Dict[str, Any]] = Field(default_factory=list)
     sections: List[Dict[str, Any]] = Field(default_factory=list)
+
+    _validate_attributes = field_validator("attributes_schema", "skills_schema")(validate_schema_entries)
+    _validate_sections = field_validator("sections")(validate_sections)
 
 class TemplateUpdate(BaseModel):
     name: Optional[str] = None
@@ -225,6 +349,9 @@ class TemplateUpdate(BaseModel):
     attributes_schema: Optional[List[Dict[str, Any]]] = None
     skills_schema: Optional[List[Dict[str, Any]]] = None
     sections: Optional[List[Dict[str, Any]]] = None
+
+    _validate_attributes = field_validator("attributes_schema", "skills_schema")(validate_schema_entries)
+    _validate_sections = field_validator("sections")(validate_sections)
 
 class LootIn(BaseModel):
     campaign_id: str
@@ -244,10 +371,13 @@ async def register(body: RegisterIn, response: Response):
     uid = new_id()
     doc = {
         "id": uid, "email": email, "name": body.name.strip(),
-        "role": body.role, "password_hash": hash_password(body.password),
+        "role": body.role, "password_hash": await run_in_threadpool(hash_password, body.password),
         "created_at": now_iso(),
     }
-    await db.users.insert_one(doc)
+    try:
+        await db.users.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="Email já cadastrado")
     access = create_access_token(uid, email)
     refresh = create_refresh_token(uid)
     set_auth_cookies(response, access, refresh)
@@ -257,7 +387,7 @@ async def register(body: RegisterIn, response: Response):
 async def login(body: LoginIn, response: Response):
     email = body.email.lower().strip()
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user or not await run_in_threadpool(verify_password, body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
     access = create_access_token(user["id"], email)
     refresh = create_refresh_token(user["id"])
@@ -265,9 +395,20 @@ async def login(body: LoginIn, response: Response):
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
 
 @api.post("/auth/logout")
-async def logout(response: Response):
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+async def logout(request: Request, response: Response):
+    for token in (request.cookies.get("refresh_token"), request.cookies.get("access_token")):
+        if not token:
+            continue
+        try:
+            payload = jwt.decode(token, jwt_secret(), algorithms=[JWT_ALGO])
+            await db.revoked_tokens.update_one(
+                {"digest": hashlib.sha256(token.encode()).hexdigest()},
+                {"$set": {"expires_at": datetime.fromtimestamp(payload["exp"], timezone.utc)}},
+                upsert=True)
+        except jwt.PyJWTError:
+            pass
+    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
+    response.delete_cookie("refresh_token", path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
     return {"ok": True}
 
 @api.get("/auth/me")
@@ -281,17 +422,91 @@ async def refresh(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="No refresh token")
     try:
         payload = jwt.decode(token, jwt_secret(), algorithms=[JWT_ALGO])
+        if await db.revoked_tokens.find_one({"digest": hashlib.sha256(token.encode()).hexdigest()}):
+            raise HTTPException(status_code=401, detail="Session revoked")
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token")
         user = await db.users.find_one({"id": payload["sub"]})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         access = create_access_token(user["id"], user["email"])
-        response.set_cookie("access_token", access, httponly=True, secure=True,
-                            samesite="none", max_age=6*3600, path="/")
+        response.set_cookie("access_token", access, httponly=True, secure=COOKIE_SECURE,
+                            samesite=COOKIE_SAMESITE, max_age=6*3600, path="/")
         return {"ok": True}
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+# --------- Google sign-in ---------
+def google_enabled():
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI)
+
+@api.get("/auth/providers")
+async def auth_providers():
+    return {"google": google_enabled()}
+
+@api.get("/auth/google/start")
+async def google_start(role: str = Query("player", pattern="^(player|master)$")):
+    if not google_enabled():
+        raise HTTPException(status_code=503, detail="Login Google ainda não configurado")
+    state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    await db.oauth_states.insert_one({
+        "_id": hashlib.sha256(state.encode()).hexdigest(), "nonce": nonce,
+        "verifier": verifier, "role": role,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)})
+    params = {"client_id": GOOGLE_CLIENT_ID, "redirect_uri": GOOGLE_REDIRECT_URI,
+              "response_type": "code", "scope": "openid email profile", "state": state,
+              "nonce": nonce, "code_challenge": challenge, "code_challenge_method": "S256",
+              "prompt": "select_account"}
+    response = RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params), status_code=302)
+    response.set_cookie("oauth_state", state, max_age=600, httponly=True,
+                        secure=COOKIE_SECURE, samesite="lax", path="/api/auth/google")
+    return response
+
+@api.get("/auth/google/callback")
+async def google_callback(request: Request, state: str = "", code: str = "", error: str = ""):
+    def failed(message):
+        result = RedirectResponse(FRONTEND_URL + "/login?" + urlencode({"oauth_error": message}), status_code=302)
+        result.delete_cookie("oauth_state", path="/api/auth/google", secure=COOKIE_SECURE, httponly=True, samesite="lax")
+        return result
+    cookie = request.cookies.get("oauth_state", "")
+    if not google_enabled() or not state or not cookie or not secrets.compare_digest(state, cookie):
+        return failed("Sessão Google inválida. Tente novamente.")
+    record = await db.oauth_states.find_one_and_delete({"_id": hashlib.sha256(state.encode()).hexdigest()})
+    if not record or record["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        return failed("A tentativa expirou. Tente novamente.")
+    if error or not code:
+        return failed("Login Google cancelado.")
+    try:
+        def exchange():
+            result = requests.post("https://oauth2.googleapis.com/token", data={
+                "code": code, "client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI, "grant_type": "authorization_code",
+                "code_verifier": record["verifier"]}, timeout=15)
+            result.raise_for_status()
+            from google.oauth2 import id_token
+            from google.auth.transport.requests import Request as GoogleRequest
+            return id_token.verify_oauth2_token(result.json()["id_token"], GoogleRequest(), GOOGLE_CLIENT_ID)
+        claims = await run_in_threadpool(exchange)
+        if (not claims.get("email_verified") or not claims.get("sub") or
+                not secrets.compare_digest(str(claims.get("nonce", "")), record["nonce"])):
+            return failed("Não foi possível verificar sua conta Google.")
+        user = await db.users.find_one({"google_sub": claims["sub"]})
+        if not user:
+            email = claims["email"].lower().strip()
+            # Explicit linking only: never silently take over a password account by email.
+            if await db.users.find_one({"email": email}):
+                return failed("Este email já tem conta. Entre com sua senha.")
+            user = {"id": new_id(), "email": email, "name": claims.get("name", email.split("@")[0])[:100],
+                    "google_sub": claims["sub"], "role": record["role"], "created_at": now_iso()}
+            await db.users.insert_one(user)
+        response = RedirectResponse(FRONTEND_URL + "/app", status_code=302)
+        set_auth_cookies(response, create_access_token(user["id"], user["email"]), create_refresh_token(user["id"]))
+        response.delete_cookie("oauth_state", path="/api/auth/google", secure=COOKIE_SECURE, httponly=True, samesite="lax")
+        return response
+    except Exception:
+        logger.warning("Google sign-in failed")  # do not log codes, tokens or credentials
+        return failed("Não foi possível entrar com Google. Tente novamente.")
 
 # --------- Campaigns ---------
 async def get_campaign_or_403(cid: str, user: dict, require_master: bool = False) -> dict:
@@ -311,6 +526,8 @@ async def get_campaign_or_403(cid: str, user: dict, require_master: bool = False
 async def create_campaign(body: CampaignIn, user=Depends(get_current_user)):
     if user["role"] != "master":
         raise HTTPException(status_code=403, detail="Apenas mestres podem criar campanhas")
+    if body.template_id:
+        await get_template(body.template_id, user)
     cid = new_id()
     code = invite_code()
     while await db.campaigns.find_one({"invite_code": code}):
@@ -351,6 +568,8 @@ async def get_campaign(cid: str, user=Depends(get_current_user)):
 async def update_campaign(cid: str, body: CampaignUpdate, user=Depends(get_current_user)):
     await get_campaign_or_403(cid, user, require_master=True)
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if updates.get("template_id"):
+        await get_template(updates["template_id"], user)
     if updates:
         await db.campaigns.update_one({"id": cid}, {"$set": updates})
         # Notify players when template changes
@@ -381,7 +600,7 @@ async def join_campaign(body: JoinIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Você é o mestre desta campanha")
     if user["id"] in camp.get("player_ids", []):
         return strip_id(camp)
-    await db.campaigns.update_one({"id": camp["id"]}, {"$push": {"player_ids": user["id"]}})
+    await db.campaigns.update_one({"id": camp["id"]}, {"$addToSet": {"player_ids": user["id"]}})
     camp = await db.campaigns.find_one({"id": camp["id"]})
     return strip_id(camp)
 
@@ -409,6 +628,12 @@ async def create_character(body: CharacterIn, user=Depends(get_current_user)):
         if not data["skills"] and template.get("skills_schema"):
             data["skills"] = [{"name": s.get("label") or s.get("key"), "value": 0, "bonus": 0}
                               for s in template["skills_schema"] if s.get("key") or s.get("label")]
+        for section in template.get("sections", []):
+            for field in section.get("fields", []):
+                key = field.get("key")
+                if key and key not in data["custom_fields"]:
+                    fallback = False if field.get("type") == "checkbox" else 0 if field.get("type") == "number" else ""
+                    data["custom_fields"][key] = field.get("default", fallback)
         data["template_id"] = template["id"]
         data["system"] = template.get("system", data.get("system", "custom"))
     if not data["attributes"]:
@@ -456,6 +681,20 @@ async def update_character(char_id: str, body: dict, user=Depends(get_current_us
         raise HTTPException(status_code=404, detail="Personagem não encontrado")
     if c["owner_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Apenas o dono pode editar")
+    # Parse only supported fields; campaign/template membership is checked server-side.
+    allowed = set(CharacterIn.model_fields)
+    updates = {k: v for k, v in body.items() if k in allowed}
+    try:
+        validated = CharacterIn.model_validate({**c, **updates})
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False))
+    if validated.campaign_id:
+        camp = await get_campaign_or_403(validated.campaign_id, user)
+        updates["template_id"] = camp.get("template_id")
+    else:
+        updates["template_id"] = None
+    body = {**{k: v for k, v in validated.model_dump().items() if k in updates},
+            "template_id": updates["template_id"]}
     # Strip fields that must not be overwritten or that would conflict with $push history
     for k in ("id", "_id", "owner_id", "created_at", "history"):
         body.pop(k, None)
@@ -548,6 +787,9 @@ import re
 def roll_expression(expr: str) -> dict:
     """Parse and roll expression like 1d20+5, 2d6-1, d20."""
     expr = expr.replace(" ", "").lower()
+    if len(expr) > 200 or not re.fullmatch(r"[+-]?(?:\d{0,3}d\d{1,6}|\d{1,7})(?:[+-](?:\d{0,3}d\d{1,6}|\d{1,7}))*", expr):
+        raise ValueError("Invalid expression")
+    dice_count = 0
     # split by + / -
     tokens = re.findall(r"([+-]?[^+-]+)", expr)
     total = 0
@@ -564,6 +806,9 @@ def roll_expression(expr: str) -> dict:
             parts = tk.split("d")
             count = int(parts[0]) if parts[0] else 1
             faces = int(parts[1])
+            dice_count += count
+            if not 1 <= count <= 100 or not 2 <= faces <= 100000 or dice_count > 100:
+                raise ValueError("Maximum 100 dice; 2–100000 faces")
             rolls = [secrets.randbelow(faces) + 1 for _ in range(count)]
             subtotal = sum(rolls) * sign
             total += subtotal
@@ -576,6 +821,10 @@ def roll_expression(expr: str) -> dict:
 
 @api.post("/rolls")
 async def create_roll(body: DiceRollIn, user=Depends(get_current_user)):
+    if body.character_id:
+        character = await get_character(body.character_id, user)
+        if character.get("campaign_id") != body.campaign_id:
+            raise HTTPException(status_code=400, detail="Personagem não pertence à campanha informada")
     if body.campaign_id:
         await get_campaign_or_403(body.campaign_id, user)
     try:
@@ -594,7 +843,7 @@ async def create_roll(body: DiceRollIn, user=Depends(get_current_user)):
 
 @api.get("/rolls")
 async def list_rolls(campaign_id: Optional[str] = None, since: Optional[str] = None,
-                     limit: int = 50, user=Depends(get_current_user)):
+                     limit: int = Query(50, ge=1, le=200), user=Depends(get_current_user)):
     q: Dict[str, Any] = {}
     if campaign_id:
         await get_campaign_or_403(campaign_id, user)
@@ -621,8 +870,31 @@ async def upload_file(file: UploadFile = File(...),
     ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin").lower()
     fid = new_id()
     path = f"{APP_NAME}/uploads/{user['id']}/{fid}.{ext}"
-    data = await file.read()
-    result = put_object(path, data, file.content_type or "application/octet-stream")
+    allowed_types = {
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "webp": "image/webp", "gif": "image/gif", "pdf": "application/pdf",
+        "txt": "text/plain", "json": "application/json"}
+    if ext not in allowed_types or file.content_type != allowed_types[ext]:
+        raise HTTPException(status_code=415, detail="Use PNG, JPEG, WebP, GIF, PDF, TXT ou JSON.")
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    await file.close()
+    if not data or len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="O arquivo deve ter entre 1 byte e 10 MB.")
+    signatures = {"png": b"\x89PNG\r\n\x1a\n", "jpg": b"\xff\xd8\xff",
+                  "jpeg": b"\xff\xd8\xff", "gif": b"GIF", "pdf": b"%PDF-"}
+    if ext in signatures and not data.startswith(signatures[ext]):
+        raise HTTPException(status_code=415, detail="Conteúdo incompatível com o tipo do arquivo.")
+    if ext == "webp" and not (data.startswith(b"RIFF") and data[8:12] == b"WEBP"):
+        raise HTTPException(status_code=415, detail="Imagem WebP inválida.")
+    if ext in ("txt", "json"):
+        try:
+            text = data.decode("utf-8")
+            if ext == "json":
+                import json
+                json.loads(text)
+        except (UnicodeError, ValueError):
+            raise HTTPException(status_code=415, detail="Arquivo de texto inválido.")
+    result = await run_in_threadpool(put_object, path, data, allowed_types[ext])
     rec = {
         "id": fid, "storage_path": result["path"], "original_filename": file.filename,
         "content_type": file.content_type, "size": result.get("size", len(data)),
@@ -636,7 +908,7 @@ async def upload_file(file: UploadFile = File(...),
 
 @api.get("/files")
 async def list_files(campaign_id: Optional[str] = None, user=Depends(get_current_user)):
-    q: Dict[str, Any] = {"is_deleted": False}
+    q: Dict[str, Any] = {"is_deleted": False, "resource_kind": {"$exists": False}}
     if campaign_id:
         await get_campaign_or_403(campaign_id, user)
         q["campaign_id"] = campaign_id
@@ -650,39 +922,84 @@ async def list_files(campaign_id: Optional[str] = None, user=Depends(get_current
     return result
 
 @api.get("/files/{fid}/download")
-async def download_file(fid: str, request: Request, auth: Optional[str] = Query(None)):
-    # Allow query param auth for img src
-    if auth:
-        try:
-            payload = jwt.decode(auth, jwt_secret(), algorithms=[JWT_ALGO])
-            user_id = payload.get("sub")
-            if not user_id:
-                raise HTTPException(status_code=401, detail="Invalid token")
-        except jwt.PyJWTError:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    else:
-        user = await get_current_user(request)
-        user_id = user["id"]
+async def download_file(fid: str, request: Request):
+    user = await get_current_user(request)
     rec = await db.files.find_one({"id": fid, "is_deleted": False})
     if not rec:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-    # Access: owner or campaign member
-    if rec["user_id"] != user_id and rec.get("campaign_id"):
-        camp = await db.campaigns.find_one({"id": rec["campaign_id"]})
-        if not camp or (user_id != camp["master_id"] and user_id not in camp.get("player_ids", [])):
+    if rec.get("resource_kind"):
+        resource, field = await image_resource(rec["resource_kind"], rec["resource_id"], user)
+        if resource.get(field) != fid:
+            raise HTTPException(status_code=404, detail="Imagem substituída")
+    elif rec["user_id"] != user["id"]:
+        if not rec.get("campaign_id"):
             raise HTTPException(status_code=403, detail="Sem acesso")
-    data, ct = get_object(rec["storage_path"])
-    return FastResponse(content=data, media_type=rec.get("content_type") or ct)
+        await get_campaign_or_403(rec["campaign_id"], user)
+    data, ct = await run_in_threadpool(get_object, rec["storage_path"])
+    content_type = rec.get("content_type") or ct
+    disposition = "inline" if content_type in ("image/png", "image/jpeg", "image/webp", "image/gif") else "attachment"
+    return FastResponse(content=data, media_type=content_type, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": disposition, "Content-Security-Policy": "default-src 'none'; sandbox"})
+
 
 @api.delete("/files/{fid}")
 async def delete_file(fid: str, user=Depends(get_current_user)):
     rec = await db.files.find_one({"id": fid})
     if not rec:
         raise HTTPException(status_code=404, detail="Não encontrado")
+    if rec.get("resource_kind"):
+        raise HTTPException(status_code=409, detail="Remova a imagem pela campanha, modelo ou NPC.")
     if rec["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Sem permissão")
     await db.files.update_one({"id": fid}, {"$set": {"is_deleted": True}})
     return {"ok": True}
+
+# --------- Resource images: keep access tied to the current resource ---------
+IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+async def image_resource(kind: str, resource_id: str, user: dict, write: bool = False):
+    if kind == "campaigns":
+        resource = await get_campaign_or_403(resource_id, user, require_master=write)
+        return resource, "cover_file_id"
+    if kind == "templates":
+        resource = await get_template(resource_id, user)
+        if write and resource["author_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Apenas o autor pode alterar a capa")
+        return resource, "cover_file_id"
+    if kind == "npcs":
+        resource = await db.npcs.find_one({"id": resource_id})
+        if not resource:
+            raise HTTPException(status_code=404, detail="NPC não encontrado")
+        await get_campaign_or_403(resource["campaign_id"], user, require_master=write)
+        return strip_id(resource), "avatar_file_id"
+    raise HTTPException(status_code=404, detail="Tipo de imagem inválido")
+
+@api.post("/images/{kind}/{resource_id}")
+async def set_resource_image(kind: str, resource_id: str, file: UploadFile = File(...),
+                             user=Depends(get_current_user)):
+    resource, field = await image_resource(kind, resource_id, user, write=True)
+    if file.content_type not in IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="Escolha uma imagem PNG, JPEG, WebP ou GIF.")
+    campaign_id = resource_id if kind == "campaigns" else resource.get("campaign_id")
+    uploaded = await upload_file(file, campaign_id, user)
+    await db.files.update_one({"id": uploaded["id"]}, {"$set": {
+        "resource_kind": kind, "resource_id": resource_id}})
+    await db[kind].update_one({"id": resource_id}, {"$set": {
+        field: uploaded["id"], "updated_at": now_iso()}})
+    if resource.get(field):
+        await db.files.update_one({"id": resource[field]}, {"$set": {"is_deleted": True}})
+    resource[field] = uploaded["id"]
+    return resource
+
+@api.delete("/images/{kind}/{resource_id}")
+async def remove_resource_image(kind: str, resource_id: str, user=Depends(get_current_user)):
+    resource, field = await image_resource(kind, resource_id, user, write=True)
+    await db[kind].update_one({"id": resource_id}, {"$set": {field: None, "updated_at": now_iso()}})
+    if resource.get(field):
+        await db.files.update_one({"id": resource[field]}, {"$set": {"is_deleted": True}})
+    resource[field] = None
+    return resource
 
 # --------- Loot ---------
 @api.post("/loot")
@@ -944,6 +1261,8 @@ async def delete_template(tid: str, user=Depends(get_current_user)):
     t = await db.templates.find_one({"id": tid})
     if not t or t["author_id"] != user["id"]:
         raise HTTPException(status_code=404, detail="Não encontrado")
+    if await db.campaigns.find_one({"template_id": tid}):
+        raise HTTPException(status_code=409, detail="Este modelo está em uso em uma campanha. Troque o modelo antes de excluí-lo.")
     await db.templates.delete_one({"id": tid})
     return {"ok": True}
 
@@ -962,7 +1281,19 @@ async def install_template(tid: str, user=Depends(get_current_user)):
     t["is_public"] = False
     t["created_at"] = now_iso()
     t["installs"] = 0
+    t["likes"] = 0
     t["cloned_from"] = tid
+    if t.get("cover_file_id"):
+        source_image = await db.files.find_one({"id": t["cover_file_id"], "is_deleted": False})
+        if source_image:
+            source_image.pop("_id", None)
+            source_image.update({"id": new_id(), "user_id": user["id"],
+                                 "resource_kind": "templates", "resource_id": t["id"],
+                                 "created_at": now_iso(), "campaign_id": None})
+            await db.files.insert_one(source_image)
+            t["cover_file_id"] = source_image["id"]
+        else:
+            t["cover_file_id"] = None
     await db.templates.insert_one(t)
     await db.templates.update_one({"id": tid}, {"$inc": {"installs": 1}})
     return strip_id(t)
@@ -993,13 +1324,11 @@ async def export_character(char_id: str, user=Depends(get_current_user)):
 
 @api.post("/characters/import")
 async def import_character(data: dict, user=Depends(get_current_user)):
-    data.pop("_id", None)
-    data["id"] = new_id()
-    data["owner_id"] = user["id"]
-    data["created_at"] = now_iso(); data["updated_at"] = now_iso()
-    data["history"] = [{"at": now_iso(), "action": "imported"}]
-    await db.characters.insert_one(data)
-    return strip_id(data)
+    try:
+        body = CharacterIn.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False))
+    return await create_character(body, user)
 
 # --------- Health ---------
 @api.get("/")
@@ -1013,11 +1342,20 @@ async def startup():
     await db.campaigns.create_index("invite_code", unique=True)
     await db.characters.create_index("owner_id")
     await db.rolls.create_index([("campaign_id", 1), ("created_at", -1)])
-    # Seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@rpg.local")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    await db.revoked_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.oauth_states.create_index("expires_at", expireAfterSeconds=0)
+    await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
+    await db.template_likes.create_index([("template_id", 1), ("user_id", 1)], unique=True)
+    await db.users.create_index("google_sub", unique=True, sparse=True)
+    if len(jwt_secret()) < 32:
+        raise RuntimeError("JWT_SECRET deve ter pelo menos 32 caracteres.")
+    # Optional administrator: no default account or password.
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
     existing = await db.users.find_one({"email": admin_email})
-    if not existing:
+    if admin_email and admin_password and not existing:
+        if len(admin_password) < 12:
+            raise RuntimeError("ADMIN_PASSWORD deve ter pelo menos 12 caracteres")
         await db.users.insert_one({
             "id": new_id(), "email": admin_email, "name": "Admin",
             "role": "master", "password_hash": hash_password(admin_password),
@@ -1034,11 +1372,7 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[
-        "https://grimoorio-frontend.onrender.com",
-        "https://grimoorio.com.br",
-        "https://www.grimoorio.com.br",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],

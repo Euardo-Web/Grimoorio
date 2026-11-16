@@ -1,3 +1,5 @@
+import CampaignCard from "@/components/CampaignCard";
+import { ImagePicker, uploadResourceImage } from "@/components/ResourceImage";
 import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
@@ -13,6 +15,8 @@ export default function CampaignsPage() {
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [form, setForm] = useState({ name: "", system: "dnd5e", description: "", template_id: "" });
+  const [cover, setCover] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [joinCode, setJoinCode] = useState("");
 
   const load = async () => {
@@ -24,14 +28,22 @@ export default function CampaignsPage() {
 
   const create = async (e) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
       const payload = { ...form, template_id: form.template_id || null };
-      await api.post("/campaigns", payload);
+      const { data } = await api.post("/campaigns", payload);
+      if (cover) {
+        try { await uploadResourceImage("campaigns", data.id, cover); }
+        catch (error) { toast.error("Campanha criada, mas a capa não foi enviada: " + formatApiError(error)); }
+      }
+      setCover(null);
       toast.success("Campanha criada!");
       setForm({ name: "", system: "dnd5e", description: "", template_id: "" });
       setCreating(false);
       load();
     } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSaving(false); }
   };
 
   const join = async (e) => {
@@ -58,7 +70,7 @@ export default function CampaignsPage() {
             </button>
             {user?.role === "master" && (
               <button onClick={() => setCreating(!creating)} data-testid="create-campaign-btn"
-                className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
+                className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm text-sm flex items-center gap-2">
                 <Plus size={16} weight="bold" /> Nova Campanha
               </button>
             )}
@@ -66,31 +78,31 @@ export default function CampaignsPage() {
         </div>
 
         {joining && (
-          <form onSubmit={join} className="border border-white/10 p-6 rounded-sm bg-[#12121A] mb-6" data-testid="join-form">
+          <form onSubmit={join} className="border border-white/10 p-6 rounded-sm bg-[#191F22] mb-6" data-testid="join-form">
             <label className="block text-xs text-gray-400 font-mono mb-1">CÓDIGO DE CONVITE</label>
             <div className="flex gap-2">
               <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 data-testid="join-code-input"
-                className="flex-1 bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 font-mono uppercase tracking-wider" placeholder="ABC123" />
+                className="flex-1 bg-[#101416] border border-white/10 rounded-sm px-3 py-2 font-mono uppercase tracking-wider" placeholder="ABC123" />
               <button type="submit" data-testid="join-submit-btn"
-                className="bg-[#FF4500] text-black font-medium px-4 rounded-sm">Entrar</button>
+                className="bg-[#D5AB68] text-black font-medium px-4 rounded-sm">Entrar</button>
             </div>
           </form>
         )}
 
         {creating && (
-          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#12121A] mb-6" data-testid="create-form">
+          <form onSubmit={create} className="border border-white/10 p-6 rounded-sm bg-[#191F22] mb-6" data-testid="create-form">
             <div className="mb-4">
               <label className="block text-xs text-gray-400 font-mono mb-1">NOME</label>
               <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                 data-testid="campaign-name-input"
-                className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 focus:outline-none focus:border-[#FF4500]" />
+                className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 focus:outline-none focus:border-[#D5AB68]" />
             </div>
             <div className="mb-4">
               <label className="block text-xs text-gray-400 font-mono mb-1">SISTEMA</label>
               <select value={form.system} onChange={(e) => setForm({ ...form, system: e.target.value })}
                 data-testid="campaign-system-select"
-                className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2">
                 <option value="dnd5e">D&D 5ª Edição</option>
                 <option value="tormenta">Tormenta20</option>
                 <option value="custom">Personalizado</option>
@@ -100,7 +112,7 @@ export default function CampaignsPage() {
               <label className="block text-xs text-gray-400 font-mono mb-1">MODELO DE FICHA (opcional)</label>
               <select value={form.template_id} onChange={(e) => setForm({ ...form, template_id: e.target.value })}
                 data-testid="campaign-template-select"
-                className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2">
+                className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2">
                 <option value="">— usar campos padrão —</option>
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -110,7 +122,7 @@ export default function CampaignsPage() {
               </select>
               {templates.length === 0 && (
                 <div className="text-xs text-gray-500 mt-1">
-                  Você ainda não tem modelos. Crie um ou instale um da <a href="/app/templates" className="text-[#FF4500] hover:underline">biblioteca pública</a>.
+                  Você ainda não tem modelos. Crie um ou instale um da <a href="/app/templates" className="text-[#D5AB68] hover:underline">biblioteca pública</a>.
                 </div>
               )}
             </div>
@@ -118,10 +130,11 @@ export default function CampaignsPage() {
               <label className="block text-xs text-gray-400 font-mono mb-1">DESCRIÇÃO</label>
               <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={3} data-testid="campaign-desc-input"
-                className="w-full bg-[#0A0A0E] border border-white/10 rounded-sm px-3 py-2 focus:outline-none focus:border-[#FF4500]" />
+                className="w-full bg-[#101416] border border-white/10 rounded-sm px-3 py-2 focus:outline-none focus:border-[#D5AB68]" />
             </div>
-            <button type="submit" data-testid="campaign-create-submit"
-              className="bg-[#FF4500] hover:bg-[#FF6347] text-black font-medium px-4 py-2 rounded-sm">Criar</button>
+            <ImagePicker label="Capa da campanha" file={cover} onSelect={setCover} onRemove={() => setCover(null)} disabled={saving} />
+            <button type="submit" disabled={saving} data-testid="campaign-create-submit"
+              className="bg-[#D5AB68] hover:bg-[#E5C38D] text-black font-medium px-4 py-2 rounded-sm">Criar</button>
           </form>
         )}
 
@@ -131,21 +144,8 @@ export default function CampaignsPage() {
             {user?.role === "master" ? "Crie sua primeira campanha." : "Entre com um código de convite."}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {campaigns.map((c) => (
-              <Link key={c.id} to={`/app/campaigns/${c.id}`} data-testid={`campaign-${c.id}`}
-                className="group border border-white/10 hover:border-[#FF4500]/60 bg-[#12121A] p-6 rounded-sm">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`text-[10px] font-mono px-2 py-0.5 border ${c.is_master ? "border-[#FF4500] text-[#FF4500]" : "border-white/20 text-gray-400"} rounded-sm`}>
-                    {c.is_master ? "MESTRE" : "JOGADOR"}
-                  </div>
-                  <div className="text-xs text-gray-500 font-mono">#{c.invite_code}</div>
-                </div>
-                <div className="font-display text-2xl font-bold mb-2 group-hover:text-[#FF4500]">{c.name}</div>
-                <div className="text-xs text-gray-500 font-mono uppercase mb-3">{c.system}</div>
-                <div className="text-sm text-gray-400 line-clamp-2">{c.description || "Sem descrição"}</div>
-              </Link>
-            ))}
+          <div className="campaign-grid">
+            {campaigns.map((c) => <CampaignCard key={c.id} campaign={c} />)}
           </div>
         )}
       </div>

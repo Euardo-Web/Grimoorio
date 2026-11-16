@@ -1,8 +1,7 @@
-# Build frontend
+#!/usr/bin/env sh
+set -eu
 cd frontend
-npm install
+npm ci
 npm run build
-
-# Install backend dependencies
 cd ../backend
 pip install -r requirements.txt
